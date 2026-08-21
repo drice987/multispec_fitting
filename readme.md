@@ -12,7 +12,7 @@ Python designed for simultaneous fitting of multiple spectra, particularly usefu
 
 ## Example Single Spectra from VTVH fit
 <p align="center">
-  <img src="example_image.png" alt="Fitted 2.5K 10T data from the VTVH fit">
+  <img src="./example/example_image.png" alt="Fitted 2.5K 10T data from the VTVH fit">
 </p>
 *Fitted example using VTVH MCD data [1]*
 
@@ -30,4 +30,9 @@ pip install -r requirements.txt
 The script reads initial guesses, bounds, and constraints from structured text files. Please see the Jupyter Notebook located at **'examples/example_jupyter.ipynb'** for a walkthrough. The notebook demonstrates setting parameters, executing the global fit, and plotting the results using VTVH MCD data [1].
 
 ## References
-Derek B. Rice et al., *Sci. Adv.* **10**, eado1603(2024). DOI:10.1126/sciadv.ado1603
+1. Derek B. Rice et al., *Sci. Adv.* **10**, eado1603(2024). DOI:10.1126/sciadv.ado1603
+
+## ToDo
+* **Remake input file** The switch from text file to a structured input.
+* **Rewrite in SciPy** Reduce dependencies by switching entirely to SciPy
+* **Add main() function** Allowing script to run independently
