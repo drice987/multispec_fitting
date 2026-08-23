@@ -1,0 +1,119 @@
+[dataset]
+filename = "./example/N2Q_MCD_VTVH.txt"
+temperatures = [2.5, 10, 20, 40]
+fields = [10, 7, 5, 3]
+
+# ----------------------------------------
+# Band 0 & 1: Vibronic Pseudo-A Pair (Type 7)
+# ----------------------------------------
+[bands.Band0]
+type = "Vibronic"
+center = { value = 10098.1, vary = true }
+width = { value = 355.6, vary = true }
+vib_spacing = { value = 545.5, vary = true }
+huang_rhys = { value = 2.107, vary = true }
+amplitudes = { expr = "-Band1.amplitudes" }
+
+
+[bands.Band1]
+type = "Vibronic"
+center = { value = 10118.2, vary = true }
+width = { value = 383.8, vary = true }
+vib_spacing = { value = 600.4, vary = true }
+huang_rhys = { value = 2.107, vary = true }
+
+
+[bands.Band1.amplitudes]
+"2.5" = [699.6, 900.2, 756.3, 596.2]
+"10"  = [493.5, 637.7, 522.3, 397.9]
+"20"  = [353.5, 457.4, 371.4, 276.7]
+"40"  = [213.2, 276.5, 220.8, 163.2]
+
+# ----------------------------------------
+# Band 2 & 3: Gaussian Pseudo-A Pair
+# ----------------------------------------
+[bands.Band2]
+type = "Gaussian"
+center = { value = 11179.5, vary = true }
+width = { value = 1760.5, vary = true}
+amplitudes = { expr = "-Band3.amplitudes" }
+
+[bands.Band3]
+type = "Gaussian"
+center = { value = 12802.5, vary = true }
+width = { value = 1216.0, vary = true}
+
+[bands.Band3.amplitudes]
+"2.5" = [175.4, 197.8, 188.5, 174.5]
+"10"  = [122.7, 140.6, 132.8, 122.2]
+"20"  = [ 87.7,  99.7,  95.9,  87.6]
+"40"  = [ 52.6,  60.2,  57.2,  53.3]
+
+# ----------------------------------------
+# Band 4 through 9: Independent Gaussians
+# ----------------------------------------
+[bands.Band4]
+type = "Gaussian"
+center = { value = 11186.3, vary = true }
+width = { value = 1514.0, vary = true, max = 2000 }
+
+[bands.Band4.amplitudes]
+"2.5" = [  1.0, 152.3, 456.4, 623.7]
+"10"  = [  1.0, 119.3, 369.2, 501.1]
+"20"  = [  1.0,  89.0, 283.2, 384.0]
+"40"  = [  1.0,  55.0, 178.0, 242.6]
+
+[bands.Band5]
+type = "Gaussian"
+center = { value = 13620.7, vary = true }
+width = { value = 2222.9, vary = true}
+
+[bands.Band5.amplitudes]
+"2.5" = [271.4, 356.3, 237.8, 127.3]
+"10"  = [192.3, 252.2, 155.9,  71.2]
+"20"  = [138.3, 182.0, 107.2,  44.4]
+"40"  = [ 83.2, 109.4,  63.6,  23.2]
+
+[bands.Band6]
+type = "Gaussian"
+center = { value = 17945.6, vary = true }
+width = { value = 2005.7, vary = true }
+
+[bands.Band6.amplitudes]
+"2.5"   = [ 16.9,  30.1,  22.5,  13.3]
+"10"  = [ 12.4,  21.5,  14.8,   6.2]
+"20"  = [  8.9,  15.5,   9.1,   2.2]
+"40"  = [  5.3,   9.4,   5.4,   1.0]
+
+[bands.Band7]
+type = "Gaussian"
+center = { value = 22484.8, vary = true }
+width = { value = 1667.6, vary = true }
+
+[bands.Band7.amplitudes]
+"2.5" = [  1.0,  13.1,  21.9,  31.4]
+"10"  = [  1.0,  11.3,  20.7,  29.3]
+"20"  = [  1.0,   9.3,  17.1,  26.3]
+"40"  = [  1.0,   5.8,  11.7,  19.6]
+
+[bands.Band8]
+type = "Gaussian"
+center = { value = 25368.1, vary = true }
+width = { value = 1733.5, vary = true }
+
+[bands.Band8.amplitudes]
+"2.5" = [-275.5, -401.9, -413.9, -367.1]
+"10"  = [-200.8, -290.6, -292.5, -245.9]
+"20"  = [-147.5, -209.5, -206.9, -156.3]
+"40"  = [ -87.4, -127.5, -120.2,  -66.8]
+
+[bands.Band9]
+type = "Gaussian"
+center = { value = 27033.9, vary = true }
+width = { value = 867.9, vary = true }
+
+[bands.Band9.amplitudes]
+"2.5" = [140.3, 343.8, 544.1, 682.8]
+"10"  = [ 99.5, 263.1, 449.7, 566.1]
+"20"  = [ 71.2, 197.0, 353.3, 465.7]
+"40"  = [ 37.3, 120.0, 227.4, 340.4]

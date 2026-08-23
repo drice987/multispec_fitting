@@ -1,0 +1,129 @@
+[dataset]
+filename = "./example/N2Q_MCD_VTVH.txt"
+fields = [10, 7, 5, 3]
+temperatures = [2.5, 10, 20, 40]
+
+[bands.Band0]
+type = "Vibronic"
+center = { value = 10094.2447, vary = false }
+width = { value = 400.5703, vary = true }
+amplitudes = { expr = "-Band1.amplitudes" }
+vib_spacing = { value = 550.4629, vary = true }
+huang_rhys = { value = 2.1200, vary = true }
+temp_broadening = { value = 10.0000, vary = true, min = 0, max = 50 }
+vib_energy = { value = 200.0000, vary = true, min = 200, max = 780 }
+
+[bands.Band1]
+type = "Vibronic"
+center = { value = 10118.4103, vary = false }
+width = { value = 400.0738, vary = true }
+vib_spacing = { value = 587.1319, vary = true }
+huang_rhys = { value = 2.1252, vary = true }
+temp_broadening = { value = 10.0000, vary = true, min = 0, max = 50 }
+vib_energy = { value = 200.0000, vary = true, min = 200, max= 780 }
+
+[bands.Band1.amplitudes]
+"2.5" = [2190.228, 1462.129, 1017.411, 600.963]
+"10" = [2788.315, 1924.910, 1369.904, 813.311]
+"20" = [3327.058, 2358.081, 1689.754, 1021.342]
+"40" = [2590.919, 1827.809, 1309.572, 789.911]
+
+[bands.Band2]
+type = "Gaussian"
+center = { value = 11394.3341, vary = false }
+width = { value = 1700.9210, vary = true }
+amplitudes = { expr = "-Band3.amplitudes" }
+temp_broadening = { value = 150.0000, vary = true, min = 0 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band3]
+type = "Gaussian"
+center = { value = 12791.7423, vary = false }
+width = { value = 1000.2660, vary = true }
+temp_broadening = { value = 150.0000, vary = true, min=0, max=600 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band3.amplitudes]
+"2.5" = [173.502, 122.828, 88.246, 54.101]
+"10" = [172.047, 121.802, 88.301, 52.850]
+"20" = [168.167, 119.069, 83.952, 50.747]
+"40" = [161.734, 112.783, 81.127, 48.192]
+
+[bands.Band4]
+type = "Gaussian"
+center = { value = 11201.8543, vary = false }
+width = { value = 1200.9952, vary = true }
+temp_broadening = { value = 150.0000, vary = true, min=0, max=600 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band4.amplitudes]
+"2.5" = [597.384, 484.993, 373.035, 236.546]
+"10" = [405.812, 334.746, 258.997, 163.690]
+"20" = [80.615, 67.921, 51.837, 32.652]
+"40" = [-46.068, -32.756, -22.806, -14.263]
+
+[bands.Band5]
+type = "Gaussian"
+center = { value = 13543.6384, vary = false }
+width = { value = 2000.9328, vary = true }
+temp_broadening = { value = 150.0000, vary = true, min=0, max=600 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band5.amplitudes]
+"2.5" = [133.614, 75.262, 47.358, 24.901]
+"10" = [249.144, 163.700, 112.690, 66.823]
+"20" = [371.993, 263.530, 190.117, 114.204]
+"40" = [283.096, 200.563, 143.922, 86.722]
+
+[bands.Band6]
+type = "Gaussian"
+center = { value = 17974.4909, vary = false }
+width = { value = 2000.4277, vary = true }
+temp_broadening = { value = 150.0000, vary = true, min=0, max=600 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band6.amplitudes]
+"2.5" = [10.860, 4.603, 1.071, -1.798]
+"10" = [19.870, 12.911, 7.850, 4.598]
+"20" = [27.873, 19.867, 14.343, 8.636]
+"40" = [15.792, 11.621, 8.335, 4.959]
+
+[bands.Band7]
+type = "Gaussian"
+center = { value = 22620.1780, vary = false }
+width = { value = 1500.1271, vary = true }
+temp_broadening = { value = 150.0000, vary = true, min=0, max=600 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band7.amplitudes]
+"2.5" = [31.770, 29.767, 26.929, 20.448]
+"10" = [22.189, 21.034, 17.455, 12.026]
+"20" = [13.800, 12.018, 9.795, 6.127]
+"40" = [-1.483, -0.499, -0.511, -0.163]
+
+[bands.Band8]
+type = "Gaussian"
+center = { value = 25424.0563, vary = false }
+width = { value = 1500.8139, vary = true }
+temp_broadening = { value = 150.0000, vary = true, min=0, max=600 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band8.amplitudes]
+"2.5" = [-365.280, -244.897, -156.031, -67.380]
+"10" = [-411.277, -290.854, -205.827, -119.651]
+"20" = [-399.994, -289.337, -208.573, -126.960]
+"40" = [-274.279, -199.976, -146.967, -86.959]
+
+[bands.Band9]
+type = "Gaussian"
+center = { value = 27010.0296, vary = false }
+width = { value = 600.3388, vary = true }
+temp_broadening = { value = 150.0000, vary = true, min=0, max=600 }
+vib_energy = { value = 200.0000, vary = true, min = 100 }
+
+[bands.Band9.amplitudes]
+"2.5" = [685.761, 566.589, 464.111, 336.896]
+"10" = [551.883, 454.028, 355.428, 228.402]
+"20" = [352.997, 269.388, 201.497, 122.657]
+"40" = [147.794, 104.940, 75.084, 39.968]
+
