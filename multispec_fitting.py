@@ -120,9 +120,21 @@ class SpectralBand:
         self.center = FitParameter(f"{name}_center", config_dict['center'])
         self.width = FitParameter(f"{name}_width", config_dict['width'])
         self.amplitudes = ArrayParameter(f"{name}_amplitudes", config_dict['amplitudes'], expected_keys)
-        
+        self.has_temp = 'temp_broadening' in config_dict
+        self.has_vib = 'vib_energy' in config_dict
+        self.temp_broadening = FitParameter(
+            f"{name}_temp_broadening", 
+            config_dict.get('temp_broadening', {'value': 0.0, 'vary': False})
+        )
+        self.vib_energy = FitParameter(
+            f"{name}_vib_energy", 
+            config_dict.get('vib_energy', {'value': 200.0, 'vary': False})
+        )
     def get_parameters(self):
-        return [self.center, self.width, self.amplitudes]
+        params = [self.center, self.width, self.amplitudes]
+        if self.has_temp: params.append(self.temp_broadening)
+        if self.has_vib: params.append(self.vib_energy)
+        return params
         
     def evaluate(self, x, namespace=None):
         raise NotImplementedError("Must be implemented by a subclass.")
@@ -134,12 +146,8 @@ class GaussianBand(SpectralBand):
     def __init__(self, name, config_dict, expected_keys = None):
         super().__init__(name, config_dict, expected_keys)
 
-        #Optional thermal broadening
-        self.temp_broadening = FitParameter(f"{name}_temp_broadening", config_dict.get('temp_broadening', {'value': 0.0, 'vary': False}))
-        self.vib_energy = FitParameter(f"{name}_vib_energy", config_dict.get('vib_energy', {'value': 200.0, 'vary': False}))
-
     def get_parameters(self):
-        return super().get_parameters() + [self.temp_broadening, self.vib_energy]
+        return super().get_parameters()
 
     def evaluate(self, x, namespace=None):
         center = self.center.get_value(namespace)
@@ -163,6 +171,49 @@ class GaussianBand(SpectralBand):
         
         return amps[:, np.newaxis] * base_shape
 
+class PseudoVoigtBand(SpectralBand):
+    """
+    Calculated Pseudo-Voigt lineshape, a linear combination of a Gaussian and a Lorentzian profile.
+    Gets center, width, and amplitude from SpectralBand.
+    """
+    def __init__(self, name, config_dict, expected_keys=None):
+        super().__init__(name, config_dict, expected_keys)
+        self.lorentz_frac = FitParameter(
+                f"{name}_lorentz_frac", 
+                config_dict.get('lorentz_frac', {'value': 0.5, 'min': 0.0, 'max': 1.0})
+            )
+
+    def get_parameters(self):
+        base_params = super().get_parameters()
+        return base_params + [self.lorentz_frac]
+
+    def evaluate(self, x, namespace=None):
+        center = self.center.get_value(namespace)
+        w0 = self.width.get_value(namespace)
+        eta = self.lorentz_frac.get_value(namespace)
+        
+        A = self.temp_broadening.get_value(namespace)
+        E_vib = self.vib_energy.get_value(namespace)
+        amps = self.amplitudes.get_value(namespace)
+
+        k_B = 0.695
+        temps = np.array(namespace['__temperatures__'])
+        safe_E_vib = max(abs(E_vib), 1.0) 
+        thermal_term = A / np.tanh(safe_E_vib / (2 * k_B * (temps + 1e-5)))
+        widths = np.maximum(w0 + thermal_term, 1e-5)
+
+        num_fields = len(amps) // len(temps)
+        full_width_array = np.repeat(widths, num_fields)[:, np.newaxis]      
+
+        dx = x[np.newaxis, :] - center  
+
+        gaussian = np.exp(-4 * np.log(2) * (dx / full_width_array)**2)
+        lorentzian = 1.0 / (1.0 + 4 * (dx / full_width_array)**2)
+
+        base_shape = eta * lorentzian + (1 - eta) * gaussian
+        
+        return amps[:, np.newaxis] * base_shape
+
 class VibronicBand(SpectralBand):
     """
     Generates vibronic progression using the Huang-Rhys factor and Poisson distribution
@@ -176,15 +227,11 @@ class VibronicBand(SpectralBand):
         self.vib_spacing = FitParameter(f"{name}_vib_spacing", config_dict['vib_spacing'])
         self.huang_rhys = FitParameter(f"{name}_huang_rhys", config_dict['huang_rhys'])
         self.n_levels = config_dict.get('n_levels', 10)
-        
-        # Optional thermal broadening
-        self.temp_broadening = FitParameter(f"{name}_temp_broadening", config_dict.get('temp_broadening', {'value': 0.0, 'vary': False}))
-        self.vib_energy = FitParameter(f"{name}_vib_energy", config_dict.get('vib_energy', {'value': 200.0, 'vary': False}))
 
     def get_parameters(self):
         """Override to include the new parameters alongside the base ones."""
         base_params = super().get_parameters()
-        return base_params + [self.vib_spacing, self.huang_rhys, self.temp_broadening, self.vib_energy]
+        return base_params + [self.vib_spacing, self.huang_rhys]
         
     def evaluate(self, x, namespace=None):
         """Calculates the full sum of the vibronic progression."""
@@ -466,7 +513,10 @@ def save_results_to_toml(filename, dataset, bands):
         for band in bands:
             f.write(f"[bands.{band.name}]\n")
             f.write(f'type = "{band.type}"\n')
-            
+
+            #Write n-levels if exists
+            if hasattr(band, 'n_levels'):
+                f.write(f'n_levels = {band.n_levels}\n')
             # Write all scalars
             for param in band.get_parameters():
                 name = param.name.split('_', 1)[1] 
@@ -504,23 +554,33 @@ def save_results_to_csv(dataset, bands, namespace, param_filename="output_parame
     with open(param_filename, mode='w', newline='') as f_param:
         writer = csv.writer(f_param)
         
-        writer.writerow(["Band_Name", "Type", "Center", "Width", "Vib_Spacing", "Huang_Rhys"])
-        
-        for band in bands:            
+        # Find all unique parameter names across every loaded band
+        unique_param_names = []
+        for band in bands:
             for param in band.get_parameters():
-                if isinstance(param, ArrayParameter):
-                    continue
-                
-                name = param.name.split('_', 1)[1]
-                val_str = str(param.expr) if param.expr else f"{param.value:.4f}"
-                
-                if name == "center": center = val_str
-                elif name == "width": width = val_str
-                elif name == "vib_spacing": vib_spacing = val_str
-                elif name == "huang_rhys": huang_rhys = val_str
-                    
-            writer.writerow([band.name, band.type, center, width, vib_spacing, huang_rhys])
+                if not isinstance(param, ArrayParameter):
+                    base_name = param.name.split('_', 1)[1]
+                    if base_name not in unique_param_names:
+                        unique_param_names.append(base_name)
+        headers = ["Band_Name", "Type"] + [name.title() for name in unique_param_names]
+        writer.writerow(headers)
+
+        for band in bands:
+            # Initialize a dictionary for this row with empty strings
+            row_dict = {name: "" for name in unique_param_names}
             
+            # Fill in the values for the band
+            for param in band.get_parameters():
+                if not isinstance(param, ArrayParameter):
+                    base_name = param.name.split('_', 1)[1]
+                    row_dict[base_name] = str(param.expr) if param.expr else f"{param.value:.4f}"
+            
+            # Place row in the proper order
+            row = [band.name, band.type]
+            for name in unique_param_names:
+                row.append(row_dict[name])
+                
+            writer.writerow(row)    
             
     # --- Table 2: VTVH Amplitudes ---
     with open(amp_filename, mode='w', newline='') as f_amp:
@@ -552,6 +612,52 @@ def parse_args():
     )
     return parser.parse_args()
 
+def save_spectra_to_csv(dataset, bands, namespace, filename='output_spectra.csv'):
+    """Exports raw x-axis, expeirmenta y-values, total fit, and individual band fits"""
+    x_axis = dataset.get_x()
+    temps = dataset.toml_temperatures
+    fields = dataset.toml_fields
+    n_cols = len(fields)
+    band_matrices = [band.evaluate(x_axis, namespace) for band in bands]
+
+    with open(filename, mode='w', newline='') as f:
+        writer = csv.writer(f)
+
+        # Build Headers
+        headers = ["X_Value"]
+        for i, temp in enumerate(temps):
+            for j, field in enumerate(fields):
+                cond = f"{temp}K_{field}T"
+                headers.extend([f"Exp_{cond}", f"Fit_{cond}"])
+                for band in bands:
+                    headers.append(f"{band.name}_{cond}")
+        writer.writerow(headers)
+
+        # Write Data Row by Row
+        for row_idx, x_val in enumerate(x_axis):
+            row_data = [f"{x_val:.4f}"]
+            
+            for i, temp in enumerate(temps):
+                for j, field in enumerate(fields):
+                    matrix_idx = (i * n_cols) + j
+                    
+                    # Experimental Y
+                    exp_val = dataset.y_matrix[row_idx, matrix_idx]
+                    row_data.append(f"{exp_val:.4f}")
+                    
+                    # Total Fit and Individual Bands
+                    total_fit = 0.0
+                    band_vals = []
+                    for b_idx, band in enumerate(bands):
+                        val = band_matrices[b_idx][matrix_idx][row_idx]
+                        total_fit += val
+                        band_vals.append(f"{val:.4f}")
+                        
+                    row_data.append(f"{total_fit:.4f}")
+                    row_data.extend(band_vals)
+                    
+            writer.writerow(row_data)
+
 def main():
     args = parse_args()
     config = load_config(args.config_file)
@@ -576,6 +682,8 @@ def main():
             bands.append(GaussianBand(band_name, band_setup, expected_keys))
         elif band_type == 'Vibronic':
             bands.append(VibronicBand(band_name, band_setup, expected_keys))
+        elif band_type == 'PseudoVoigt':
+            bands.append(PseudoVoigtBand(band_name, band_setup, expected_keys))
         else:
             raise ValueError(f"Unknown band type '{band_type}' found in [{band_name}].")
 
@@ -591,6 +699,7 @@ def main():
         final_namespace = fitter._build_namespace()
         save_results_to_toml('fitted_results.toml', dataset, bands)
         save_results_to_csv(dataset, bands, final_namespace)
+        save_spectra_to_csv(dataset, bands, final_namespace)
         plot_results(dataset, bands, final_namespace)
 
 if __name__ == "__main__":
