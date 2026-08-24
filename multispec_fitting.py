@@ -6,6 +6,7 @@ from scipy.optimize import least_squares
 import matplotlib.pyplot as plt
 import csv
 from asteval import Interpreter
+import argparse
 
 aeval = Interpreter()
 
@@ -484,8 +485,20 @@ def save_results_to_csv(dataset, bands, namespace, param_filename="output_parame
                     
             writer.writerow(row)
 
+def parse_args():
+    """Parses command line arguments to find input"""
+    parser = argparse.ArgumentParser(description="Run the global fitting routine with parameters from TOML input file.")
+
+    parser.add_argument(
+        "config_file",
+        type = str,
+        help = "Path to TOML configuration file"
+    )
+    return parser.parse_args()
+
 def main():
-    config = load_config('example/n2q_input.toml')
+    args = parse_args()
+    config = load_config(args.config_file)
     
     # Data Pipeline: Load, align, and flatten the .txt file
     dataset = DataSet(

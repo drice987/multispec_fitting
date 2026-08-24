@@ -30,23 +30,17 @@ pip install -r requirements.txt
 ## Quick Start
 The software is executed directly from command line and relies on a single .toml config file to define the dataset, initial guesses, and constraints.
 1. **Configure the fit:** Edit the input file (e.g., example/N2Q_t_indep_width.toml) to define temperatures, magnetic fields, and spectral band parameters.
-2. **Change data path in script:** Open multispec_fitting.py in text editor, and edit the config file in main:
-```python
-def main():
-  config = load_config('example/N2Q_t_indep_width.toml') 
-```
-3. **Run the fit** Execute the script in terminal:
+2. **Run the fit** Execute the script in terminal:
 ```bash
-python multispec_fitting.py
+python multispec_fitting.py python example/N2Q_t-indep_width.toml
 ```
+
 ## Outputs:
 Upon successful global fit, the script will generate:
 * `output_parameters.csv`: The optimized centers, widths, and vibronic parameters.
 * `output_amplitudes.csv`: The intensity amplitudes for every spectra combination.
 * `fitted_results.toml`: A new configuration file containing the optimized parameters.
 * `fit_results.png`: A grid plot visuallying overlaying total fits and individual bands for each spectra.
-
-
 
 ## References
 1. Derek B. Rice et al., *Sci. Adv.* **10**, eado1603(2024). DOI:10.1126/sciadv.ado1603
