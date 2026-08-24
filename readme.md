@@ -10,6 +10,7 @@ Python designed for simultaneous fitting of multiple spectra, particularly usefu
 * **Vibronic Progressions:** Built-in support for modeling vibronic coupling using the Huang-Rhys factor and Poisson distributions, automatically calculating vibrational spacing.
 * **Custom Parameter Constraints:** Define explicit mathematical relationships between different spectral bands directly in input file.
 * **Temperature Dependent Peak Width Broadening** Constrained modeling of peak width broadening across temperature gradients.
+* **Differential Evolution Optimization Algorithm** Option to use least-squared (default) or differential evolution (DE). Care should be taken with DE to set proper bounds.
 
 ## Example Single Spectra from VTVH fit
 <p align="center">
@@ -48,4 +49,3 @@ Upon successful global fit, the script will generate:
 ## ToDo
 * **Add** Magnetization curve fits
 * **Add** Pseudo-Voigt class
-* **Change** Input file method

@@ -1,12 +1,11 @@
-
-import numpy as np
 import tomllib, math
-from pathlib import Path
-from scipy.optimize import least_squares
-import matplotlib.pyplot as plt
 import csv
-from asteval import Interpreter
 import argparse
+from asteval import Interpreter
+from pathlib import Path
+import numpy as np
+from scipy.optimize import differential_evolution, least_squares
+import matplotlib.pyplot as plt
 
 aeval = Interpreter()
 
@@ -89,8 +88,8 @@ class ArrayParameter:
                
             self.value = np.array(flat_values, dtype=float)
             self.vary = True
-            self.min_val = -np.inf
-            self.max_val = np.inf
+            self.min_val = array_dict.get('min', -np.inf)
+            self.max_val = array_dict.get('max', np.inf)
 
     def get_value(self, namespace=None):
         if self.expr:
@@ -274,10 +273,11 @@ class DataSet:
         return self.y_flat
 
 class GlobalFitter:
-    def __init__(self, dataset, bands):
+    def __init__(self, dataset, bands, method = 'least_squares'):
         self.dataset = dataset
         self.bands = bands  
-        
+        self.method = method
+
         self.floating_params = []
         self._gather_floating_parameters()
 
@@ -340,23 +340,79 @@ class GlobalFitter:
         # 4. Return the 1D residual
         return total_simulation - self.dataset.get_y_flat()
 
-    def run(self):
-        """Executes the fit using trust radius method."""
+    def cost_function(self, scipy_x):
+        """Converts residual array into a single scalar value for DE."""
+        res_array = self.residual(scipy_x)
+        return np.sum(res_array **2)
 
-        x0 = self._get_initial_guesses()
+    def _get_bounds(self):
+        bounds = []
+
+        # Calculates spectral window with buffer for default min/max
+        x_data = self.dataset.get_x()
+        x_min, x_max = np.min(x_data), np.max(x_data)
+        buffer = (x_max - x_min) * 0.1
         
-        result = least_squares(
-            self.residual, 
-            x0, 
-            method='trf', 
-            ftol=1e-6, 
-            xtol=1e-6
-        )
+        safe_center_min = x_min - buffer
+        safe_center_max = x_max + buffer
+        
+        for param in self.floating_params:
+            p_min = param.min_val
+            p_max = param.max_val
+            
+            if isinstance(param.value, np.ndarray):
+                # Amplitudes
+                for val in param.value.flatten():
+                    c_min = val - abs(val) if np.isinf(p_min) else p_min
+                    c_max = val + abs(val) if np.isinf(p_max) else p_max
+                    bounds.append((c_min, c_max))
+            else:
+                # Scalars
+                val = param.value
+
+                if 'center' in param.name.lower():
+                    # Centers default to the data window + 10% if left blank
+                    c_min = safe_center_min if np.isinf(p_min) else p_min
+                    c_max = safe_center_max if np.isinf(p_max) else p_max
+                else:
+                    # Other parameters float +/- 1000%
+                    margin = abs(val) if val != 0 else 1000.0
+                    c_min = val - margin if np.isinf(p_min) else p_min
+                    c_max = val + margin if np.isinf(p_max) else p_max
+                    
+                bounds.append((c_min, c_max))
+                
+        return bounds
+
+    def run(self):
+        """Executes the fit using least squares or differential evolution."""
+        x0 = self._get_initial_guesses()
+
+        if self.method == 'differential_evolution':    
+            bounds = self._get_bounds()
+
+            result = differential_evolution(
+                self.cost_function,
+                bounds = bounds,
+                x0 = x0,
+                polish = True,
+                workers = -1,
+                updating = 'deferred',
+                disp = True
+            )
+        else:
+            result = least_squares(
+                self.residual, 
+                x0, 
+                method='trf', 
+                ftol=1e-6, 
+                xtol=1e-6
+            )
         
         self.residual(result.x)
         return result
 
-def plot_results(dataset, bands, namespace, temp_val=2.5, field_val=10):
+def plot_results(dataset, bands, namespace):
     x_axis = dataset.get_x()
     temps = dataset.toml_temperatures
     fields = dataset.toml_fields
@@ -499,7 +555,6 @@ def parse_args():
 def main():
     args = parse_args()
     config = load_config(args.config_file)
-    
     # Data Pipeline: Load, align, and flatten the .txt file
     dataset = DataSet(
         filename=config['dataset']['filename'],
@@ -509,6 +564,8 @@ def main():
 
     expected_keys = [str(t) for t in dataset.toml_temperatures]
 
+    
+    
     
     bands = []
     
@@ -522,7 +579,9 @@ def main():
         else:
             raise ValueError(f"Unknown band type '{band_type}' found in [{band_name}].")
 
-    fitter = GlobalFitter(dataset, bands)
+    fit_settings = config.get('fit_settings', {})
+    method = fit_settings.get('method','least_squares')
+    fitter = GlobalFitter(dataset, bands, method=method)
     
     # Run the Optimization
     result = fitter.run()
