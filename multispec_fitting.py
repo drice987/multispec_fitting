@@ -1,13 +1,14 @@
 import tomllib, math
 import csv
 import argparse
-from asteval import Interpreter
 from pathlib import Path
 import numpy as np
 from scipy.optimize import differential_evolution, least_squares
 import matplotlib.pyplot as plt
 
-aeval = Interpreter()
+mu_b = 0.46686  # Bohr magneton in cm-1/T
+k_B = 0.695     # Boltzmann constant in cm-1/K
+
 
 def load_config(filepath):
 
@@ -38,16 +39,20 @@ class FitParameter:
         if self.expr is not None:
             self.vary = False
 
-    def get_value(self, namespace=None):
+    def get_value(self, namespace=None, evaluator=None):
         if self.expr:
             try:
+                if evaluator is None:
+                    from asteval import Interpreter
+                    evaluator = Interpreter()                
                 safe_expr = self.expr.replace('.', '_')
                 for key, val in namespace.items():
-                    aeval.symtable[key] = val
-                return aeval(safe_expr)
+                    evaluator.symtable[key] = val
+                return evaluator(safe_expr)
             except Exception as e:
-                raise RuntimeError(f"Failed to evaluate expression '{self.expr}' for {self.name}: {e}")
-
+                name = getattr(self, 'name', 'Array') 
+                raise RuntimeError(f"Failed to evaluate expression '{self.expr}' for {name}: {e}")
+                
         return self.value
 
     def set_value(self, new_value):
@@ -91,17 +96,21 @@ class ArrayParameter:
             self.min_val = array_dict.get('min', -np.inf)
             self.max_val = array_dict.get('max', np.inf)
 
-    def get_value(self, namespace=None):
+    def get_value(self, namespace=None, evaluator=None):
         if self.expr:
             try:
+                if evaluator is None:
+                    from asteval import Interpreter
+                    evaluator = Interpreter()                
                 safe_expr = self.expr.replace('.', '_')
                 for key, val in namespace.items():
-                    aeval.symtable[key] = val
-                return aeval(safe_expr)
+                    evaluator.symtable[key] = val
+                return evaluator(safe_expr)
             except Exception as e:
-                raise RuntimeError(f"Failed to evaluate expression '{self.expr}': {e}")
-                
-        return self.value 
+                name = getattr(self, 'name', 'Array') 
+                raise RuntimeError(f"Failed to evaluate expression '{self.expr}' for {name}: {e}")
+                        
+        return self.value
 
     def set_value(self, new_array):
         if self.expr is not None:
@@ -136,7 +145,7 @@ class SpectralBand:
         if self.has_vib: params.append(self.vib_energy)
         return params
         
-    def evaluate(self, x, namespace=None):
+    def evaluate(self, x, namespace=None, evaluator=None):
         raise NotImplementedError("Must be implemented by a subclass.")
 
 class GaussianBand(SpectralBand):
@@ -149,14 +158,12 @@ class GaussianBand(SpectralBand):
     def get_parameters(self):
         return super().get_parameters()
 
-    def evaluate(self, x, namespace=None):
-        center = self.center.get_value(namespace)
-        w0 = self.width.get_value(namespace)
-        A = self.temp_broadening.get_value(namespace)
-        E_vib = self.vib_energy.get_value(namespace)
-        amps = self.amplitudes.get_value(namespace)
-
-        k_B = 0.695
+    def evaluate(self, x, namespace=None, evaluator=None):
+        center = self.center.get_value(namespace,evaluator)
+        w0 = self.width.get_value(namespace,evaluator)
+        A = self.temp_broadening.get_value(namespace,evaluator)
+        E_vib = self.vib_energy.get_value(namespace,evaluator)
+        amps = self.amplitudes.get_value(namespace,evaluator)
         temps = np.array(namespace['__temperatures__'])
         
         safe_E_vib = max(abs(E_vib), 1.0) 
@@ -187,16 +194,14 @@ class PseudoVoigtBand(SpectralBand):
         base_params = super().get_parameters()
         return base_params + [self.lorentz_frac]
 
-    def evaluate(self, x, namespace=None):
-        center = self.center.get_value(namespace)
-        w0 = self.width.get_value(namespace)
-        eta = self.lorentz_frac.get_value(namespace)
+    def evaluate(self, x, namespace=None, evaluator=None):
+        center = self.center.get_value(namespace,evaluator)
+        w0 = self.width.get_value(namespace,evaluator)
+        eta = self.lorentz_frac.get_value(namespace,evaluator)
         
-        A = self.temp_broadening.get_value(namespace)
-        E_vib = self.vib_energy.get_value(namespace)
-        amps = self.amplitudes.get_value(namespace)
-
-        k_B = 0.695
+        A = self.temp_broadening.get_value(namespace,evaluator)
+        E_vib = self.vib_energy.get_value(namespace,evaluator)
+        amps = self.amplitudes.get_value(namespace,evaluator)
         temps = np.array(namespace['__temperatures__'])
         safe_E_vib = max(abs(E_vib), 1.0) 
         thermal_term = A / np.tanh(safe_E_vib / (2 * k_B * (temps + 1e-5)))
@@ -233,19 +238,17 @@ class VibronicBand(SpectralBand):
         base_params = super().get_parameters()
         return base_params + [self.vib_spacing, self.huang_rhys]
         
-    def evaluate(self, x, namespace=None):
+    def evaluate(self, x, namespace=None, evaluator=None):
         """Calculates the full sum of the vibronic progression."""
-        c = self.center.get_value(namespace)
-        w = self.width.get_value(namespace)
-        amps = self.amplitudes.get_value(namespace)
-        spacing = self.vib_spacing.get_value(namespace)
-        s = self.huang_rhys.get_value(namespace)
+        c = self.center.get_value(namespace,evaluator)
+        w = self.width.get_value(namespace,evaluator)
+        amps = self.amplitudes.get_value(namespace,evaluator)
+        spacing = self.vib_spacing.get_value(namespace,evaluator)
+        s = self.huang_rhys.get_value(namespace,evaluator)
         
-        A = self.temp_broadening.get_value(namespace)
-        E_vib = self.vib_energy.get_value(namespace)
+        A = self.temp_broadening.get_value(namespace,evaluator)
+        E_vib = self.vib_energy.get_value(namespace,evaluator)
 
-        # Thermal Broadening
-        k_B = 0.695
         temps = np.array(namespace['__temperatures__'])
         safe_E_vib = max(abs(E_vib), 1.0)
         thermal_term = A / np.tanh(safe_E_vib / (2 * k_B * (temps + 1e-5)))
@@ -363,7 +366,6 @@ class GlobalFitter:
         """
         Core function for minimization, calculate residualss
         """
-        # Map the flat array back into parameters
         idx = 0
         for param in self.floating_params:
             if isinstance(param.value, np.ndarray):
@@ -379,7 +381,10 @@ class GlobalFitter:
         # Calculate the total simulated spectrum
         x_axis = self.dataset.get_x()
         total_simulation = np.zeros_like(self.dataset.get_y_flat())
-        
+
+        from asteval import Interpreter
+        aeval = Interpreter()
+
         for band in self.bands:
             simulated_matrix = band.evaluate(x_axis, namespace)
             total_simulation += simulated_matrix.flatten()
@@ -494,9 +499,10 @@ def plot_results(dataset, bands, namespace):
                 ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left", ncol=2, fontsize='small')
 
     plt.tight_layout()
-    
     plt.savefig("fit_results.png", dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.close()
+    
+
 
 def save_results_to_toml(filename, dataset, bands):
     """Writes the fit results into a TOML output file."""
@@ -601,6 +607,24 @@ def save_results_to_csv(dataset, bands, namespace, param_filename="output_parame
                     
             writer.writerow(row)
 
+def save_sh_results_to_csv(sh_data, D, E, g, filename="sh_fit_results.csv"):
+    """Saves the unscaled dipoles and polarizations to a CSV file."""
+    import csv
+    with open(filename, mode='w', newline='') as f:
+        writer = csv.writer(f)
+        
+        writer.writerow(["--- Global Spin-Hamiltonian Parameters ---"])
+        writer.writerow(["D (cm-1)", f"{D:.4f}"])
+        writer.writerow(["E (cm-1)", f"{E:.4f}"])
+        writer.writerow(["gx", f"{g[0]:.4f}"])
+        writer.writerow(["gy", f"{g[1]:.4f}"])
+        writer.writerow(["gz", f"{g[2]:.4f}"])
+        writer.writerow([])
+        writer.writerow(["Band_Name", "Mxy", "Myz", "Mzx", "%x", "%y", "%z"])
+        for row in sh_data:
+            formatted_row = [row[0]] + [f"{val:.2f}" for val in row[1:]]
+            writer.writerow(formatted_row)
+
 def parse_args():
     """Parses command line arguments to find input"""
     parser = argparse.ArgumentParser(description="Run the global fitting routine with parameters from TOML input file.")
@@ -609,6 +633,11 @@ def parse_args():
         "config_file",
         type = str,
         help = "Path to TOML configuration file"
+    )
+    parser.add_argument(
+        "--sh-only",
+        action = "store_true",
+        help = "Skip spectral fitting and only run the Spin-Hamiltonian solver using amplitudes in the TOML."
     )
     return parser.parse_args()
 
@@ -658,10 +687,555 @@ def save_spectra_to_csv(dataset, bands, namespace, filename='output_spectra.csv'
                     
             writer.writerow(row_data)
 
+def get_spin_matrices(S):
+    """
+    Generates the Sx, Sy, and Sz spin operator matrices for a given spin S.
+    Returns complex numpy arrays of shape (2S+1, 2S+1).
+    """
+    dim = int(2 * S + 1)
+    Sz = np.zeros((dim, dim), dtype=complex)
+    Sp = np.zeros((dim, dim), dtype=complex) # S_+ 
+    Sm = np.zeros((dim, dim), dtype=complex) # S_- 
+    
+    for i in range(dim):
+        m = S - i
+        Sz[i, i] = m
+        
+        if i > 0:
+            Sp[i-1, i] = np.sqrt(S * (S + 1) - m * (m + 1))
+            
+        if i < dim - 1:
+            Sm[i+1, i] = np.sqrt(S * (S + 1) - m * (m - 1))
+            
+    Sx = 0.5 * (Sp + Sm)
+    Sy = -0.5j * (Sp - Sm)
+    
+    return Sx, Sy, Sz
+
+class SpinHamiltonian:
+    """
+    Calculates the energy levels and wavefunctions for a given spin system
+    subject to Zero-Field Splitting and an external magnetic field.
+    """
+    def __init__(self, S, D, E, g):
+        self.S = S
+        self.Sx, self.Sy, self.Sz = get_spin_matrices(S)
+        
+        # Handle isotropic g-value or anisotropic g-tensor [gx, gy, gz]
+        if isinstance(g, (int, float)):
+            self.gx = self.gy = self.gz = float(g)
+        else:
+            self.gx, self.gy, self.gz = g
+            
+        # Bohr magneton
+        self.mu_b = mu_b
+        
+        # Build the Zero-Field Splitting Matrix 
+        S_sq = S * (S + 1)
+        identity = np.eye(int(2 * S + 1), dtype=complex)
+        
+        self.H_zfs = D * (self.Sz @ self.Sz - (S_sq / 3.0) * identity) + \
+                     E * (self.Sx @ self.Sx - self.Sy @ self.Sy)
+
+    def solve(self, B_vector):
+        """
+        Applies the magnetic field (Zeeman effect), diagonalizes the matrix,
+        and returns the energies and spin expectation values.
+        """
+        Bx, By, Bz = B_vector
+        
+        # Build the Zeeman Matrix 
+        H_zeeman = self.mu_b * (self.gx * Bx * self.Sx + 
+                                self.gy * By * self.Sy + 
+                                self.gz * Bz * self.Sz)
+                                
+        H_total = self.H_zfs + H_zeeman
+        
+        # Diagonalize the Hermitian matrix
+        energies, wavefunctions = np.linalg.eigh(H_total)
+        
+        # Calculate Spin Expectation Values for each state
+        exp_Sx = np.diag(wavefunctions.conj().T @ self.Sx @ wavefunctions).real
+        exp_Sy = np.diag(wavefunctions.conj().T @ self.Sy @ wavefunctions).real
+        exp_Sz = np.diag(wavefunctions.conj().T @ self.Sz @ wavefunctions).real
+        exp_S = np.vstack((exp_Sx, exp_Sy, exp_Sz)).T
+        
+        return energies, exp_S
+
+    def get_mcd_components(self, B_mag, temp, n_theta=30, n_phi=30):
+        """
+        Calculates the orientation-averaged MCD basis components (xy, yz, zx)
+        decoupled from the transition dipoles.
+        """
+        ave_xy, ave_yz, ave_zx = 0.0, 0.0, 0.0
+        weight_sum = 0.0
+        
+        thetas = np.linspace(0, np.pi, n_theta)
+        phis = np.linspace(0, 2 * np.pi, n_phi)
+        kT = k_B * temp  
+        
+        for theta in thetas:
+            sin_t = np.sin(theta)
+            cos_t = np.cos(theta)
+            weight = sin_t 
+            
+            for phi in phis:
+                sin_p = np.sin(phi)
+                cos_p = np.cos(phi)
+                
+                ux = sin_t * cos_p
+                uy = sin_t * sin_p
+                uz = cos_t
+                
+                B_vector = [B_mag * ux, B_mag * uy, B_mag * uz]
+                energies, exp_S = self.solve(B_vector)
+                
+                exp_terms = np.exp(-(energies - energies[0]) / kT)
+                populations = exp_terms / np.sum(exp_terms)
+                
+                comp_xy, comp_yz, comp_zx = 0.0, 0.0, 0.0
+                for i in range(len(energies)):
+                    Sx, Sy, Sz = exp_S[i]
+                    comp_xy += populations[i] * (uz * Sz)
+                    comp_yz += populations[i] * (ux * Sx)
+                    comp_zx += populations[i] * (uy * Sy)
+                                                          
+                ave_xy += comp_xy * weight
+                ave_yz += comp_yz * weight
+                ave_zx += comp_zx * weight
+                weight_sum += weight
+                
+        return ave_xy / weight_sum, ave_yz / weight_sum, ave_zx / weight_sum
+
+class MagnetizationFitter:
+    """
+    Fits experimental VTVH amplitudes to extract Zero-Field Splitting (D, E),
+    an isotropic g-value, and effective transition dipole moments.
+    """
+    def __init__(self, S, temps, fields, exp_norm_dict, sh_params, symmetry_mode="isotropic"):
+        self.S = S
+        self.temps = temps
+        self.fields = fields
+        self.exp_norm_dict = {}  
+        self.band_names = list(exp_norm_dict.keys())
+        self.symmetry_mode = symmetry_mode.lower()
+        
+        self.sh_params = sh_params
+        self.floating_sh_params = [p for p in self.sh_params.values() if p.vary]
+        self.num_floating_sh = len(self.floating_sh_params)
+        
+        self.scale_factors = {}
+        for name, amps in exp_norm_dict.items():
+            sf = np.max(np.abs(amps))
+            if sf == 0: sf = 1.0
+            self.scale_factors[name] = sf
+            self.exp_norm_dict[name] = np.array(amps) / sf
+
+    def residual(self, params):
+        for i, param in enumerate(self.floating_sh_params):
+            param.set_value(params[i])
+            
+        if self.symmetry_mode == "isotropic":
+            gx = gy = gz = self.sh_params['g'].value
+        elif self.symmetry_mode == "axial":
+            gx = gy = self.sh_params['gx'].value
+            gz = self.sh_params['gz'].value
+        elif self.symmetry_mode == "rhombic":
+            gx = self.sh_params['gx'].value
+            gy = self.sh_params['gy'].value
+            gz = self.sh_params['gz'].value
+            
+        D = self.sh_params['D'].value
+        E = self.sh_params['E'].value
+            
+        if D != 0 and abs(E / D) > 1/3:
+            return np.ones(len(self.temps) * len(self.band_names)) * 1e6
+            
+        engine = SpinHamiltonian(self.S, D, E, [gx, gy, gz])
+        
+        basis_matrix = {}
+        for i, t in enumerate(self.temps):
+            b = self.fields[i]
+            if (t, b) not in basis_matrix:
+                basis_matrix[(t, b)] = engine.get_mcd_components(b, t, n_theta=15, n_phi=15)
+        
+        all_residuals = []
+        
+        band_params = params[self.num_floating_sh:]
+        
+        for i, name in enumerate(self.band_names):
+            if self.symmetry_mode == "isotropic":
+                idx = i
+                Mxy = Myz = Mzx = band_params[idx]
+            elif self.symmetry_mode == "axial":
+                idx = i * 2
+                Mxy, Mxz = band_params[idx : idx+2]
+                Myz = Mzx = Mxz
+            elif self.symmetry_mode == "rhombic":
+                idx = i * 3
+                Mxy, Myz, Mzx = band_params[idx : idx+3]
+                
+            simulated_norm = np.zeros(len(self.temps))
+            for j in range(len(self.temps)):
+                t = self.temps[j]
+                b = self.fields[j]
+                ave_xy, ave_yz, ave_zx = basis_matrix[(t, b)]
+                simulated_norm[j] = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
+                
+            band_residual = simulated_norm - self.exp_norm_dict[name]
+            all_residuals.append(band_residual)
+            
+        return np.concatenate(all_residuals)
+
+    def cost_function(self, params):
+        res_array = self.residual(params)
+        return np.sum(res_array ** 2)
+
+    def run_fit(self, method='least_squares'):
+        guess, lb, ub = [], [], []
+        
+        # Load bounds for floating Spin-Hamiltonian parameters
+        for p in self.floating_sh_params:
+            guess.append(p.value)
+            lb.append(p.min_val)
+            ub.append(p.max_val)
+            
+        # Append bounds for the Transition Dipoles
+        num_bands = len(self.band_names)
+        if self.symmetry_mode == "isotropic":
+            guess.extend([0.1] * num_bands)
+            lb.extend([-50.0] * num_bands)
+            ub.extend([ 50.0] * num_bands)
+        elif self.symmetry_mode == "axial":
+            guess.extend([0.1, 0.1] * num_bands)
+            lb.extend([-50.0, -50.0] * num_bands)
+            ub.extend([ 50.0,  50.0] * num_bands)
+        elif self.symmetry_mode == "rhombic":
+            guess.extend([0.1, 0.1, 0.1] * num_bands)
+            lb.extend([-50.0, -50.0, -50.0] * num_bands)
+            ub.extend([ 50.0,  50.0,  50.0] * num_bands)
+
+        if method == 'differential_evolution':
+            de_bounds = list(zip(lb, ub))
+            result = differential_evolution(
+                self.cost_function, bounds=de_bounds, x0=guess, polish=True, workers=-1, disp=True
+            )
+        else:
+            result = least_squares(
+                self.residual, x0=guess, bounds=(lb, ub), method='trf', xtol=1e-4, ftol=1e-4
+            )
+            
+        return result
+
+
+def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
+    S = mol_config.get('spin', 1.0)
+    method = mol_config.get('method', 'least_squares')
+    plot_reduced_mag = mol_config.get('plot_reduced_mag', True)
+    
+    symmetry_mode = mol_config.get('symmetry', 'isotropic').lower()
+    if symmetry_mode not in ["isotropic", "axial", "rhombic"]:
+        raise ValueError("Invalid symmetry in input file. Please use isotropic, axial, or rhombic.")
+
+    def_g = {'value': 2.00, 'vary': False}
+    def_D = {'value': 5.0, 'vary': False}
+    def_E = {'value': 0.0, 'vary': False}
+    
+    sh_params = {}
+    if symmetry_mode == "isotropic":
+        sh_params['g'] = FitParameter("g", mol_config.get('g', def_g))
+    elif symmetry_mode == "axial":
+        sh_params['gx'] = FitParameter("gx", mol_config.get('gx', def_g))
+        sh_params['gz'] = FitParameter("gz", mol_config.get('gz', def_g))
+    elif symmetry_mode == "rhombic":
+        sh_params['gx'] = FitParameter("gx", mol_config.get('gx', def_g))
+        sh_params['gy'] = FitParameter("gy", mol_config.get('gy', def_g))
+        sh_params['gz'] = FitParameter("gz", mol_config.get('gz', def_g))
+        
+    sh_params['D'] = FitParameter("D", mol_config.get('D', def_D))
+    sh_params['E'] = FitParameter("E", mol_config.get('E', def_E))
+
+    fitter = MagnetizationFitter(S, flat_temps, flat_fields, bands_dict, sh_params, symmetry_mode=symmetry_mode)
+    result = fitter.run_fit(method=method)
+
+    if result.success:      
+        for i, param in enumerate(fitter.floating_sh_params):
+            param.set_value(result.x[i])
+        if symmetry_mode == "isotropic":
+            gx_fit = gy_fit = gz_fit = sh_params['g'].value
+        elif symmetry_mode == "axial":
+            gx_fit = gy_fit = sh_params['gx'].value
+            gz_fit = sh_params['gz'].value
+        elif symmetry_mode == "rhombic":
+            gx_fit = sh_params['gx'].value
+            gy_fit = sh_params['gy'].value
+            gz_fit = sh_params['gz'].value
+            
+        D_fit = sh_params['D'].value
+        E_fit = sh_params['E'].value
+        g_tensor = [gx_fit, gy_fit, gz_fit]
+
+        out_dir = Path("sh_outputs")
+        out_dir.mkdir(exist_ok=True)
+        
+        all_plot_params = {}
+        sh_csv_data = []
+        curve_data_rows = [["Band_Name", "Temperature_K", "Data_Type", "X_Value", "MCD_Intensity"]]
+        
+        band_params = result.x[fitter.num_floating_sh:]
+        
+        num_bands = len(fitter.band_names)
+        n_cols = min(3, num_bands) 
+        n_rows = math.ceil(num_bands / n_cols)
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(5 * n_cols, 4 * n_rows))
+        
+        if num_bands > 1:
+            axes_flat = axes.flatten()
+        else:
+            axes_flat = [axes]
+        
+        for i, name in enumerate(fitter.band_names):
+            if symmetry_mode == "isotropic":
+                idx = i
+                Mxy = Myz = Mzx = band_params[idx]
+            elif symmetry_mode == "axial":
+                idx = i * 2
+                Mxy, Mxz = band_params[idx : idx+2]
+                Myz = Mzx = Mxz
+            elif symmetry_mode == "rhombic":
+                idx = i * 3
+                Mxy, Myz, Mzx = band_params[idx : idx+3]
+            
+            eps = 1e-12 
+            Px = abs((Mxy * Mzx) / (Myz + eps))
+            Py = abs((Mxy * Myz) / (Mzx + eps))
+            Pz = abs((Myz * Mzx) / (Mxy + eps))
+            
+            total_P = Px + Py + Pz
+            if total_P > 0:
+                perc_x = (Px / total_P) * 100
+                perc_y = (Py / total_P) * 100
+                perc_z = (Pz / total_P) * 100
+            else:
+                perc_x = perc_y = perc_z = 0.0
+                
+            sh_csv_data.append([name, Mxy, Myz, Mzx, perc_x, perc_y, perc_z])
+            sf = fitter.scale_factors[name]
+            plot_params = [D_fit, E_fit, Mxy * sf, Myz * sf, Mzx * sf]
+            all_plot_params[name] = plot_params
+            
+            ax = axes_flat[i]
+            plot_sh_curves(ax, name, flat_temps, flat_fields, bands_dict[name], plot_params, S, g_tensor, curve_data_rows, plot_reduced_mag=plot_reduced_mag)
+            if i == 0:
+                ax.legend(fontsize='small')
+                
+        for j in range(num_bands, len(axes_flat)):
+            axes_flat[j].set_visible(False)
+            
+        plt.tight_layout()
+        fig.savefig(out_dir / "All_Bands_Magnetization_Fits.png", dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        
+        plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, S, g_tensor, out_dir)
+        save_sh_results_to_csv(sh_csv_data, D_fit, E_fit, g_tensor, out_dir)
+        
+        with open(out_dir / "sh_simulated_curves.csv", "w", newline='') as f:
+            writer = csv.writer(f)
+            writer.writerows(curve_data_rows)
+            
+    else:
+        print(f"Global fit failed: {result.message}")
+
+def run_standalone_sh(config):
+    if 'sh' not in config:
+        raise ValueError("Cannot run SH solver: Missing [sh] block in TOML.")
+        
+    mol_config = config['sh']
+    temps = config['dataset']['temperatures']
+    fields = config['dataset']['fields']
+    
+    flat_temps = [float(t) for t in temps for f in fields]
+    flat_fields = [float(f) for t in temps for f in fields]
+    
+    bands_dict = {}
+    for band_name, band_setup in config['bands'].items():
+        if 'amplitudes' not in band_setup or 'expr' in band_setup['amplitudes']:
+            continue
+            
+        amps_dict = band_setup['amplitudes']
+        amps = []
+        for t in temps:
+            if str(t) in amps_dict:
+                amps.extend(amps_dict[str(t)])
+                
+        if amps:
+            bands_dict[band_name] = amps
+
+    if bands_dict:
+        run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
+
+def run_magnetization_pipeline(dataset, bands, namespace, mol_config):
+    flat_temps = [float(t) for t in dataset.toml_temperatures for f in dataset.toml_fields]
+    flat_fields = [float(f) for t in dataset.toml_temperatures for f in dataset.toml_fields]
+    
+    x_axis = dataset.get_x()
+    bands_dict = {}
+    
+    for band in bands:
+        has_amps = any(isinstance(p, ArrayParameter) for p in band.get_parameters())
+        
+        if has_amps:
+            band_matrix = band.evaluate(x_axis, namespace)
+            
+            true_peak_amps = []
+            for row in band_matrix:
+                max_idx = np.argmax(np.abs(row))
+                true_peak_amps.append(row[max_idx])
+                
+            bands_dict[band.name] = np.array(true_peak_amps)
+            
+    if bands_dict:
+        run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
+            
+    if bands_dict:
+        run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
+
+def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params, S, g, curve_data_rows, plot_reduced_mag=True):
+    D, E, Mxy, Myz, Mzx = fit_params
+    engine = SpinHamiltonian(S, D, E, g)
+    
+    temps_arr = np.array(flat_temps)
+    fields_arr = np.array(flat_fields)
+    amps_arr = np.array(exp_amps)
+    
+    unique_temps = np.unique(temps_arr)    
+    
+    max_field = np.max(fields_arr)
+    smooth_fields = np.linspace(0.1, max_field * 1.05, 50)
+    
+    for temp in unique_temps:
+        idx = np.where(temps_arr == temp)[0]
+        t_fields = fields_arr[idx]
+        t_amps = amps_arr[idx]
+        
+        if plot_reduced_mag:
+            x_exp = (mu_b * t_fields) / (2 * k_B * temp)
+        else:
+            x_exp = t_fields
+            
+        p = ax.plot(x_exp, t_amps, marker='o', linestyle='none', label=f'Exp {temp} K')
+        line_color = p[0].get_color()
+        
+        for x, y in zip(x_exp, t_amps):
+            curve_data_rows.append([band_name, temp, "Experimental", x, y])
+        
+        t_smooth_amps = []
+        x_smooth = []
+        for b_mag in smooth_fields:
+            ave_xy, ave_yz, ave_zx = engine.get_mcd_components(b_mag, temp, n_theta=30, n_phi=30)
+            sim_val = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
+            t_smooth_amps.append(sim_val)
+            
+            if plot_reduced_mag:
+                x_smooth.append((mu_b * b_mag) / (2 * k_B * temp))
+            else:
+                x_smooth.append(b_mag)
+                
+        for x, y in zip(x_smooth, t_smooth_amps):
+            curve_data_rows.append([band_name, temp, "Fit", x, y])
+                
+        ax.plot(x_smooth, t_smooth_amps, linestyle='-', color=line_color, label=f'Fit {temp} K')
+
+    ax.set_title(f"{band_name}\n$D$ = {D:.2f} cm$^{{-1}}$ | $E$ = {E:.2f} cm$^{{-1}}$")
+    if plot_reduced_mag:
+        ax.set_xlabel("$\\mu_B B / 2kT$")
+    else:
+        ax.set_xlabel("Magnetic Field (T)")
+    ax.set_ylabel("MCD Amplitude")
+
+def plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, S, g, target_field=None):
+    """
+    Plots a summary figure showing the isofield curve for all bands on a single plot,
+    matching the requested publication style.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    
+    # Default to the highest field if not specified
+    fields_arr = np.array(flat_fields)
+    if target_field is None:
+        target_field = np.max(fields_arr)
+        
+    temps_arr = np.array(flat_temps)
+    unique_temps = np.unique(temps_arr)  
+    plt.figure(figsize=(6, 9))
+    
+    # Generate a dense temperature array to ensure smooth curves
+    min_t, max_t = np.min(unique_temps), np.max(unique_temps)
+    smooth_temps = np.logspace(np.log10(min_t * 0.8), np.log10(max_t * 5), 100)
+    
+    # Extract shared D and E from the first band's parameters
+    first_band_params = all_plot_params[list(all_plot_params.keys())[0]]
+    D, E = first_band_params[0], first_band_params[1]
+    
+    engine = SpinHamiltonian(S, D, E, g)
+    
+    smooth_bases = []
+    for t in smooth_temps:
+        smooth_bases.append(engine.get_mcd_components(target_field, t, n_theta=30, n_phi=30))
+        
+    for name, params in all_plot_params.items():
+        _, _, Mxy, Myz, Mzx = params
+        exp_amps = bands_dict[name]
+        
+        # Select data for this field
+        target_amps = []
+        target_x = []
+        for i in range(len(flat_fields)):
+            if np.isclose(flat_fields[i], target_field):
+                t = flat_temps[i]
+                target_amps.append(exp_amps[i])
+                target_x.append((mu_b * target_field) / (2 * k_B * t))
+                
+        # Plot data
+        p = plt.plot(target_x, target_amps, marker='+', linestyle='none', markersize=6)
+        color = p[0].get_color()
+        
+        # Model curves
+        t_smooth_amps = []
+        x_smooth = []
+        for i, t in enumerate(smooth_temps):
+            ave_xy, ave_yz, ave_zx = smooth_bases[i]
+            sim_val = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
+            t_smooth_amps.append(sim_val)
+            x_smooth.append((mu_b * target_field) / (2 * k_B * t))
+            
+        plt.plot(x_smooth, t_smooth_amps, linestyle='-', color=color)
+        
+        
+        max_x_idx = np.argmax(x_smooth)
+        band_num = name.replace('Band', '')  
+        plt.text(x_smooth[max_x_idx], t_smooth_amps[max_x_idx], f" {band_num}", 
+                 fontsize=12, verticalalignment='bottom')
+    plt.xlabel("$\\mu_B B / 2kT$")
+    plt.ylabel("MCD Intensity (mdeg)")
+    plt.gca().text(0.02, 0.98, 'N2Q', transform=plt.gca().transAxes, fontsize=14, fontweight='bold', verticalalignment='top')
+    plt.gca().tick_params(direction='in')
+    
+    plt.tight_layout()
+    filename = f"Isofield_Summary_{target_field}T.png"
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+
+    plt.close()
+
 def main():
     args = parse_args()
     config = load_config(args.config_file)
-    # Data Pipeline: Load, align, and flatten the .txt file
+
+    if args.sh_only:
+        run_standalone_sh(config)
+        return
+    
     dataset = DataSet(
         filename=config['dataset']['filename'],
         toml_fields=config['dataset']['fields'],
@@ -670,9 +1244,6 @@ def main():
 
     expected_keys = [str(t) for t in dataset.toml_temperatures]
 
-    
-    
-    
     bands = []
     
     for band_name, band_setup in config['bands'].items():
@@ -701,6 +1272,10 @@ def main():
         save_results_to_csv(dataset, bands, final_namespace)
         save_spectra_to_csv(dataset, bands, final_namespace)
         plot_results(dataset, bands, final_namespace)
+        
+
+        if 'sh' in config:
+            run_magnetization_pipeline(dataset, bands, final_namespace, config['sh'])
 
 if __name__ == "__main__":
     main()
