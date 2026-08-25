@@ -607,12 +607,11 @@ def save_results_to_csv(dataset, bands, namespace, param_filename="output_parame
                     
             writer.writerow(row)
 
-def save_sh_results_to_csv(sh_data, D, E, g, filename="sh_fit_results.csv"):
-    """Saves the unscaled dipoles and polarizations to a CSV file."""
+def save_sh_results_to_csv(sh_data, D, E, g, out_dir, filename="sh_fit_parameters.csv"):
     import csv
-    with open(filename, mode='w', newline='') as f:
+    filepath = out_dir / filename
+    with open(filepath, mode='w', newline='') as f:
         writer = csv.writer(f)
-        
         writer.writerow(["--- Global Spin-Hamiltonian Parameters ---"])
         writer.writerow(["D (cm-1)", f"{D:.4f}"])
         writer.writerow(["E (cm-1)", f"{E:.4f}"])
@@ -622,8 +621,9 @@ def save_sh_results_to_csv(sh_data, D, E, g, filename="sh_fit_results.csv"):
         writer.writerow([])
         writer.writerow(["Band_Name", "Mxy", "Myz", "Mzx", "%x", "%y", "%z"])
         for row in sh_data:
-            formatted_row = [row[0]] + [f"{val:.2f}" for val in row[1:]]
-            writer.writerow(formatted_row)
+            name, Mxy, Myz, Mzx, px, py, pz = row
+            writer.writerow([name, f"{Mxy:.2f}", f"{Myz:.2f}", f"{Mzx:.2f}", 
+                             f"{px:.2f}", f"{py:.2f}", f"{pz:.2f}"])
 
 def parse_args():
     """Parses command line arguments to find input"""
@@ -721,7 +721,7 @@ class SpinHamiltonian:
         self.S = S
         self.Sx, self.Sy, self.Sz = get_spin_matrices(S)
         
-        # Handle isotropic g-value or anisotropic g-tensor [gx, gy, gz]
+        # Handle isotropic g-value or anisotropic g-tensor
         if isinstance(g, (int, float)):
             self.gx = self.gy = self.gz = float(g)
         else:
@@ -958,9 +958,14 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
     fitter = MagnetizationFitter(S, flat_temps, flat_fields, bands_dict, sh_params, symmetry_mode=symmetry_mode)
     result = fitter.run_fit(method=method)
 
-    if result.success:      
+    if result.success:
+        from pathlib import Path
+        import csv
+        import math
+        
         for i, param in enumerate(fitter.floating_sh_params):
             param.set_value(result.x[i])
+            
         if symmetry_mode == "isotropic":
             gx_fit = gy_fit = gz_fit = sh_params['g'].value
         elif symmetry_mode == "axial":
@@ -974,6 +979,28 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
         D_fit = sh_params['D'].value
         E_fit = sh_params['E'].value
         g_tensor = [gx_fit, gy_fit, gz_fit]
+                
+        engine = SpinHamiltonian(S, D_fit, E_fit, g_tensor)
+        temps_arr = np.array(flat_temps)
+        fields_arr = np.array(flat_fields)
+        
+        unique_temps = np.unique(temps_arr)
+        max_field = np.max(fields_arr)
+        
+        smooth_fields = np.linspace(0.1, max_field * 1.05, 50)
+        mag_basis = {}
+        for t in unique_temps:
+            mag_basis[t] = []
+            for b in smooth_fields:
+                mag_basis[t].append(engine.get_mcd_components(b, t, n_theta=30, n_phi=30))
+                
+        target_field = max_field
+        min_t, max_t = np.min(unique_temps), np.max(unique_temps)
+        smooth_temps = np.logspace(np.log10(min_t * 0.8), np.log10(max_t * 5), 100)
+        
+        iso_basis = []
+        for t in smooth_temps:
+            iso_basis.append(engine.get_mcd_components(target_field, t, n_theta=30, n_phi=30))
 
         out_dir = Path("sh_outputs")
         out_dir.mkdir(exist_ok=True)
@@ -1025,9 +1052,7 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
             all_plot_params[name] = plot_params
             
             ax = axes_flat[i]
-            plot_sh_curves(ax, name, flat_temps, flat_fields, bands_dict[name], plot_params, S, g_tensor, curve_data_rows, plot_reduced_mag=plot_reduced_mag)
-            if i == 0:
-                ax.legend(fontsize='small')
+            plot_sh_curves(ax, name, flat_temps, flat_fields, bands_dict[name], plot_params, mag_basis, smooth_fields, curve_data_rows, plot_reduced_mag=plot_reduced_mag)
                 
         for j in range(num_bands, len(axes_flat)):
             axes_flat[j].set_visible(False)
@@ -1036,7 +1061,7 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
         fig.savefig(out_dir / "All_Bands_Magnetization_Fits.png", dpi=300, bbox_inches='tight')
         plt.close(fig)
         
-        plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, S, g_tensor, out_dir)
+        plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, iso_basis, smooth_temps, target_field, out_dir)
         save_sh_results_to_csv(sh_csv_data, D_fit, E_fit, g_tensor, out_dir)
         
         with open(out_dir / "sh_simulated_curves.csv", "w", newline='') as f:
@@ -1096,22 +1121,15 @@ def run_magnetization_pipeline(dataset, bands, namespace, mol_config):
             
     if bands_dict:
         run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
-            
-    if bands_dict:
-        run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
 
-def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params, S, g, curve_data_rows, plot_reduced_mag=True):
+def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params, mag_basis, smooth_fields, curve_data_rows, plot_reduced_mag=True):
     D, E, Mxy, Myz, Mzx = fit_params
-    engine = SpinHamiltonian(S, D, E, g)
     
     temps_arr = np.array(flat_temps)
     fields_arr = np.array(flat_fields)
     amps_arr = np.array(exp_amps)
     
     unique_temps = np.unique(temps_arr)    
-    
-    max_field = np.max(fields_arr)
-    smooth_fields = np.linspace(0.1, max_field * 1.05, 50)
     
     for temp in unique_temps:
         idx = np.where(temps_arr == temp)[0]
@@ -1131,8 +1149,8 @@ def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params,
         
         t_smooth_amps = []
         x_smooth = []
-        for b_mag in smooth_fields:
-            ave_xy, ave_yz, ave_zx = engine.get_mcd_components(b_mag, temp, n_theta=30, n_phi=30)
+        for i, b_mag in enumerate(smooth_fields):
+            ave_xy, ave_yz, ave_zx = mag_basis[temp][i]
             sim_val = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
             t_smooth_amps.append(sim_val)
             
@@ -1144,88 +1162,59 @@ def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params,
         for x, y in zip(x_smooth, t_smooth_amps):
             curve_data_rows.append([band_name, temp, "Fit", x, y])
                 
-        ax.plot(x_smooth, t_smooth_amps, linestyle='-', color=line_color, label=f'Fit {temp} K')
+        ax.plot(x_smooth, t_smooth_amps, linestyle='-', color=line_color)
 
-    ax.set_title(f"{band_name}\n$D$ = {D:.2f} cm$^{{-1}}$ | $E$ = {E:.2f} cm$^{{-1}}$")
     if plot_reduced_mag:
         ax.set_xlabel("$\\mu_B B / 2kT$")
     else:
         ax.set_xlabel("Magnetic Field (T)")
     ax.set_ylabel("MCD Amplitude")
 
-def plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, S, g, target_field=None):
-    """
-    Plots a summary figure showing the isofield curve for all bands on a single plot,
-    matching the requested publication style.
-    """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    
-    # Default to the highest field if not specified
-    fields_arr = np.array(flat_fields)
-    if target_field is None:
-        target_field = np.max(fields_arr)
-        
+def plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, iso_basis, smooth_temps, target_field, out_dir):    
     temps_arr = np.array(flat_temps)
-    unique_temps = np.unique(temps_arr)  
+    fields_arr = np.array(flat_fields)
+        
     plt.figure(figsize=(6, 9))
     
-    # Generate a dense temperature array to ensure smooth curves
-    min_t, max_t = np.min(unique_temps), np.max(unique_temps)
-    smooth_temps = np.logspace(np.log10(min_t * 0.8), np.log10(max_t * 5), 100)
-    
-    # Extract shared D and E from the first band's parameters
-    first_band_params = all_plot_params[list(all_plot_params.keys())[0]]
-    D, E = first_band_params[0], first_band_params[1]
-    
-    engine = SpinHamiltonian(S, D, E, g)
-    
-    smooth_bases = []
-    for t in smooth_temps:
-        smooth_bases.append(engine.get_mcd_components(target_field, t, n_theta=30, n_phi=30))
+    for band_name, amps in bands_dict.items():
+        amps_arr = np.array(amps)
         
-    for name, params in all_plot_params.items():
-        _, _, Mxy, Myz, Mzx = params
-        exp_amps = bands_dict[name]
+        idx = np.where(np.isclose(fields_arr, target_field, atol=1e-3))[0]
+        if len(idx) == 0: 
+            continue
+            
+        target_temps = temps_arr[idx]
+        target_amps = amps_arr[idx]
         
-        # Select data for this field
-        target_amps = []
-        target_x = []
-        for i in range(len(flat_fields)):
-            if np.isclose(flat_fields[i], target_field):
-                t = flat_temps[i]
-                target_amps.append(exp_amps[i])
-                target_x.append((mu_b * target_field) / (2 * k_B * t))
-                
-        # Plot data
+        # Convert experimental X-axis to reduced magnetization
+        target_x = (mu_b * target_field) / (2 * k_B * target_temps)
+        
         p = plt.plot(target_x, target_amps, marker='+', linestyle='none', markersize=6)
-        color = p[0].get_color()
+        line_color = p[0].get_color()
         
-        # Model curves
+        D, E, Mxy, Myz, Mzx = all_plot_params[band_name]
+        
         t_smooth_amps = []
         x_smooth = []
-        for i, t in enumerate(smooth_temps):
-            ave_xy, ave_yz, ave_zx = smooth_bases[i]
+        for i, temp in enumerate(smooth_temps):
+            ave_xy, ave_yz, ave_zx = iso_basis[i]
             sim_val = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
             t_smooth_amps.append(sim_val)
-            x_smooth.append((mu_b * target_field) / (2 * k_B * t))
+            x_smooth.append((mu_b * target_field) / (2 * k_B * temp))
             
-        plt.plot(x_smooth, t_smooth_amps, linestyle='-', color=color)
-        
+        plt.plot(x_smooth, t_smooth_amps, linestyle='-', color=line_color)
         
         max_x_idx = np.argmax(x_smooth)
-        band_num = name.replace('Band', '')  
+        band_num = band_name.replace('Band', '')
         plt.text(x_smooth[max_x_idx], t_smooth_amps[max_x_idx], f" {band_num}", 
                  fontsize=12, verticalalignment='bottom')
+
     plt.xlabel("$\\mu_B B / 2kT$")
     plt.ylabel("MCD Intensity (mdeg)")
-    plt.gca().text(0.02, 0.98, 'N2Q', transform=plt.gca().transAxes, fontsize=14, fontweight='bold', verticalalignment='top')
     plt.gca().tick_params(direction='in')
-    
     plt.tight_layout()
-    filename = f"Isofield_Summary_{target_field}T.png"
+    filename = out_dir / f"Isofield_Summary_{target_field}T.png"
     plt.savefig(filename, dpi=300, bbox_inches='tight')
-
     plt.close()
 
 def main():
