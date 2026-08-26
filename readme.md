@@ -8,9 +8,10 @@ Python designed for simultaneous fitting of multiple spectra, particularly usefu
 * **Gaussian and Pseudo-Voigt Deconvolution:** Robust fitting of user selected Gaussian and Pseudo-Voigt lineshapes.
 * **Amplitude and Sign Constraints:** Set specific boundaries on parameters, including opposite-signed amplitudes.
 * **Vibronic Progressions:** Built-in support for modeling vibronic coupling using the Huang-Rhys factor and Poisson distributions, automatically calculating vibrational spacing.
-* **Custom Parameter Constraints:** Define explicit mathematical relationships between different spectral bands directly in input file.
+* **Custom Parameter Constraints:** Define explicit mathematical relationships between different spectral bands directly in input file (via asteval).
 * **Temperature Dependent Peak Width Broadening** Constrained modeling of peak width broadening across temperature gradients.
-* **Differential Evolution Optimization Algorithm** Option to use least-squared (default) or differential evolution (DE). Has default bounds available, but care should be taken with DE to set proper bounds.
+* **Differential Evolution Optimization Algorithm** Option to use least-squared (default) or differential evolution (DE) algorithms.
+* **Spin Hamiltonian** Includes an integrated spin Hamiltonian solver to extract magnetic parameters (D, E, g-tensor), band transition dipoles (Mxy,yz,xz) and polarizations directly from VTVH amplitudes.
 
 ## Example Single Spectra from VTVH fit
 <p align="center">
@@ -19,6 +20,8 @@ Python designed for simultaneous fitting of multiple spectra, particularly usefu
 *Fitted example using VTVH MCD data [1]*
 
 ## Installation
+
+**Requires:** Python 3.11 or newer (for tomllib)
 
 Clone the repository and install the required dependencies:
 
@@ -43,9 +46,11 @@ Upon successful global fit, the script will generate:
 * `output_spectra.csv`: The x-axis, expeirmenta y-values, total fit, and individual band fits for each spectra.
 * `fitted_results.toml`: A new configuration file containing the optimized parameters.
 * `fit_results.png`: A grid plot visuallying overlaying total fits and individual bands for each spectra. 
+** Spin Hamiltonian Outputs (saved in `sh_outputs/`):
+* `magnetization_fits.png`: A grid plot with magnetization curves (with option for reduced magnetization axis) for all bands.
+* `isofield__{target_field}T.png`: A plot overlaying all temperature-dependent curves at a constant field.
+* `sh_fit_parameters.csv`: All spin Hamiltonian parameters from the fit (D, E, g-tensor) and band dipole products and % polarizations.
+* `sh_simulated_curves.csv`: Long-format table of all coordinates for both the experimental data and the simulated curves.
 
 ## References
 1. Derek B. Rice et al., *Sci. Adv.* **10**, eado1603(2024). DOI:10.1126/sciadv.ado1603
-
-## ToDo
-* **Add** Magnetization curve fits

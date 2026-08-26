@@ -389,7 +389,7 @@ class GlobalFitter:
             simulated_matrix = band.evaluate(x_axis, namespace)
             total_simulation += simulated_matrix.flatten()
             
-        # 4. Return the 1D residual
+        # Return the 1D residual
         return total_simulation - self.dataset.get_y_flat()
 
     def cost_function(self, scipy_x):
@@ -619,10 +619,10 @@ def save_sh_results_to_csv(sh_data, D, E, g, out_dir, filename="sh_fit_parameter
         writer.writerow(["gy", f"{g[1]:.4f}"])
         writer.writerow(["gz", f"{g[2]:.4f}"])
         writer.writerow([])
-        writer.writerow(["Band_Name", "Mxy", "Myz", "Mzx", "%x", "%y", "%z"])
+        writer.writerow(["Band_Name", "Mxy", "Myz", "Mxz", "%x", "%y", "%z"])
         for row in sh_data:
-            name, Mxy, Myz, Mzx, px, py, pz = row
-            writer.writerow([name, f"{Mxy:.2f}", f"{Myz:.2f}", f"{Mzx:.2f}", 
+            name, Mxy, Myz, Mxz, px, py, pz = row
+            writer.writerow([name, f"{Mxy:.2f}", f"{Myz:.2f}", f"{Mxz:.2f}", 
                              f"{px:.2f}", f"{py:.2f}", f"{pz:.2f}"])
 
 def parse_args():
@@ -866,21 +866,21 @@ class MagnetizationFitter:
         for i, name in enumerate(self.band_names):
             if self.symmetry_mode == "isotropic":
                 idx = i
-                Mxy = Myz = Mzx = band_params[idx]
+                Mxy = Myz = Mxz = band_params[idx]
             elif self.symmetry_mode == "axial":
                 idx = i * 2
                 Mxy, Mxz = band_params[idx : idx+2]
-                Myz = Mzx = Mxz
+                Myz = Mxz = Mxz
             elif self.symmetry_mode == "rhombic":
                 idx = i * 3
-                Mxy, Myz, Mzx = band_params[idx : idx+3]
+                Mxy, Myz, Mxz = band_params[idx : idx+3]
                 
             simulated_norm = np.zeros(len(self.temps))
             for j in range(len(self.temps)):
                 t = self.temps[j]
                 b = self.fields[j]
                 ave_xy, ave_yz, ave_zx = basis_matrix[(t, b)]
-                simulated_norm[j] = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
+                simulated_norm[j] = Mxy * ave_xy + Myz * ave_yz + Mxz * ave_zx
                 
             band_residual = simulated_norm - self.exp_norm_dict[name]
             all_residuals.append(band_residual)
@@ -1024,19 +1024,19 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
         for i, name in enumerate(fitter.band_names):
             if symmetry_mode == "isotropic":
                 idx = i
-                Mxy = Myz = Mzx = band_params[idx]
+                Mxy = Myz = Mxz = band_params[idx]
             elif symmetry_mode == "axial":
                 idx = i * 2
                 Mxy, Mxz = band_params[idx : idx+2]
-                Myz = Mzx = Mxz
+                Myz = Mxz = Mxz
             elif symmetry_mode == "rhombic":
                 idx = i * 3
-                Mxy, Myz, Mzx = band_params[idx : idx+3]
+                Mxy, Myz, Mxz = band_params[idx : idx+3]
             
             eps = 1e-12 
-            Px = abs((Mxy * Mzx) / (Myz + eps))
-            Py = abs((Mxy * Myz) / (Mzx + eps))
-            Pz = abs((Myz * Mzx) / (Mxy + eps))
+            Px = abs((Mxy * Mxz) / (Myz + eps))
+            Py = abs((Mxy * Myz) / (Mxz + eps))
+            Pz = abs((Myz * Mxz) / (Mxy + eps))
             
             total_P = Px + Py + Pz
             if total_P > 0:
@@ -1046,9 +1046,9 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
             else:
                 perc_x = perc_y = perc_z = 0.0
                 
-            sh_csv_data.append([name, Mxy, Myz, Mzx, perc_x, perc_y, perc_z])
+            sh_csv_data.append([name, Mxy, Myz, Mxz, perc_x, perc_y, perc_z])
             sf = fitter.scale_factors[name]
-            plot_params = [D_fit, E_fit, Mxy * sf, Myz * sf, Mzx * sf]
+            plot_params = [D_fit, E_fit, Mxy * sf, Myz * sf, Mxz * sf]
             all_plot_params[name] = plot_params
             
             ax = axes_flat[i]
@@ -1058,7 +1058,7 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
             axes_flat[j].set_visible(False)
             
         plt.tight_layout()
-        fig.savefig(out_dir / "All_Bands_Magnetization_Fits.png", dpi=300, bbox_inches='tight')
+        fig.savefig(out_dir / "magnetization_fits.png", dpi=300, bbox_inches='tight')
         plt.close(fig)
         
         plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, iso_basis, smooth_temps, target_field, out_dir)
@@ -1123,7 +1123,7 @@ def run_magnetization_pipeline(dataset, bands, namespace, mol_config):
         run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
 
 def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params, mag_basis, smooth_fields, curve_data_rows, plot_reduced_mag=True):
-    D, E, Mxy, Myz, Mzx = fit_params
+    D, E, Mxy, Myz, Mxz = fit_params
     
     temps_arr = np.array(flat_temps)
     fields_arr = np.array(flat_fields)
@@ -1151,7 +1151,7 @@ def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params,
         x_smooth = []
         for i, b_mag in enumerate(smooth_fields):
             ave_xy, ave_yz, ave_zx = mag_basis[temp][i]
-            sim_val = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
+            sim_val = Mxy * ave_xy + Myz * ave_yz + Mxz * ave_zx
             t_smooth_amps.append(sim_val)
             
             if plot_reduced_mag:
@@ -1192,13 +1192,13 @@ def plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, 
         p = plt.plot(target_x, target_amps, marker='+', linestyle='none', markersize=6)
         line_color = p[0].get_color()
         
-        D, E, Mxy, Myz, Mzx = all_plot_params[band_name]
+        D, E, Mxy, Myz, Mxz = all_plot_params[band_name]
         
         t_smooth_amps = []
         x_smooth = []
         for i, temp in enumerate(smooth_temps):
             ave_xy, ave_yz, ave_zx = iso_basis[i]
-            sim_val = Mxy * ave_xy + Myz * ave_yz + Mzx * ave_zx
+            sim_val = Mxy * ave_xy + Myz * ave_yz + Mxz * ave_zx
             t_smooth_amps.append(sim_val)
             x_smooth.append((mu_b * target_field) / (2 * k_B * temp))
             
@@ -1213,7 +1213,7 @@ def plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, 
     plt.ylabel("MCD Intensity (mdeg)")
     plt.gca().tick_params(direction='in')
     plt.tight_layout()
-    filename = out_dir / f"Isofield_Summary_{target_field}T.png"
+    filename = out_dir / f"isofield_{target_field}T.png"
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.close()
 
