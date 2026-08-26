@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import differential_evolution, least_squares
 import matplotlib.pyplot as plt
+import re
 
 mu_b = 0.46686  # Bohr magneton in cm-1/T
 k_B = 0.695     # Boltzmann constant in cm-1/K
@@ -164,16 +165,13 @@ class GaussianBand(SpectralBand):
         A = self.temp_broadening.get_value(namespace,evaluator)
         E_vib = self.vib_energy.get_value(namespace,evaluator)
         amps = self.amplitudes.get_value(namespace,evaluator)
-        temps = np.array(namespace['__temperatures__'])
-        
+        temps = np.array(namespace['__real_temperatures__'])
+
         safe_E_vib = max(abs(E_vib), 1.0) 
         thermal_term = A / np.tanh(safe_E_vib / (2 * k_B * (temps + 1e-5)))
         widths = np.maximum(w0 + thermal_term, 1e-5)
         
-        num_fields = len(amps) // len(temps)
-        full_array = np.repeat(widths, num_fields)
-        
-        exponent = -4 * np.log(2) * ((x[np.newaxis, :] - center) / full_array[:, np.newaxis])**2
+        exponent = -4 * np.log(2) * ((x[np.newaxis, :] - center) / widths[:, np.newaxis])**2
         base_shape = np.exp(exponent)
         
         return amps[:, np.newaxis] * base_shape
@@ -198,22 +196,18 @@ class PseudoVoigtBand(SpectralBand):
         center = self.center.get_value(namespace,evaluator)
         w0 = self.width.get_value(namespace,evaluator)
         eta = self.lorentz_frac.get_value(namespace,evaluator)
-        
         A = self.temp_broadening.get_value(namespace,evaluator)
         E_vib = self.vib_energy.get_value(namespace,evaluator)
         amps = self.amplitudes.get_value(namespace,evaluator)
-        temps = np.array(namespace['__temperatures__'])
+        temps = np.array(namespace['__real_temperatures__'])
         safe_E_vib = max(abs(E_vib), 1.0) 
         thermal_term = A / np.tanh(safe_E_vib / (2 * k_B * (temps + 1e-5)))
-        widths = np.maximum(w0 + thermal_term, 1e-5)
-
-        num_fields = len(amps) // len(temps)
-        full_width_array = np.repeat(widths, num_fields)[:, np.newaxis]      
+        widths = np.maximum(w0 + thermal_term, 1e-5)[:, np.newaxis]
 
         dx = x[np.newaxis, :] - center  
 
-        gaussian = np.exp(-4 * np.log(2) * (dx / full_width_array)**2)
-        lorentzian = 1.0 / (1.0 + 4 * (dx / full_width_array)**2)
+        gaussian = np.exp(-4 * np.log(2) * (dx / widths)**2)
+        lorentzian = 1.0 / (1.0 + 4 * (dx / widths)**2)
 
         base_shape = eta * lorentzian + (1 - eta) * gaussian
         
@@ -249,18 +243,12 @@ class VibronicBand(SpectralBand):
         A = self.temp_broadening.get_value(namespace,evaluator)
         E_vib = self.vib_energy.get_value(namespace,evaluator)
 
-        temps = np.array(namespace['__temperatures__'])
+        temps = np.array(namespace['__real_temperatures__'])
         safe_E_vib = max(abs(E_vib), 1.0)
         thermal_term = A / np.tanh(safe_E_vib / (2 * k_B * (temps + 1e-5)))
         widths = np.maximum(w + thermal_term, 1e-5)
+        sigmas = widths / (2 * np.sqrt(2 * np.log(2)))       
 
-        #Convert to sigmas
-        sigmas = widths / (2 * np.sqrt(2 * np.log(2)))
-        
-        # Temps x Fields
-        num_fields = len(amps) // len(temps)
-        full_sigma_array = np.repeat(sigmas, num_fields)
-        
         total_base_shape = np.zeros((len(amps), len(x)))
         
         for n in range(self.n_levels):
@@ -269,7 +257,7 @@ class VibronicBand(SpectralBand):
             # Calculate the Franck-Condon relative intensity
             fc_factor = math.exp(-s) * (s**n / math.factorial(n))
             
-            exponent = -((x[np.newaxis, :] - c_n) ** 2) / (2 * full_sigma_array[:, np.newaxis] ** 2)
+            exponent = -((x[np.newaxis, :] - c_n) ** 2) / (2 * sigmas[:, np.newaxis] ** 2)
             total_base_shape += fc_factor * np.exp(exponent)
             
         return amps[:, np.newaxis] * total_base_shape
@@ -279,14 +267,20 @@ class DataSet:
     Loads experimental VTVH data, aligns it with the requested TOML conditions,
     and flattens it for the least-squares minimizer.
     """
-    def __init__(self, filename, toml_fields, toml_temperatures):
+    def __init__(self, filename, toml_fields, toml_temperatures, temp_tolerance=0.5):
         self.filename = Path(filename)
         self.toml_fields = toml_fields            
         self.toml_temperatures = toml_temperatures 
         
+        self.temp_tolerance = temp_tolerance 
+        
         self.x = None
         self.y_matrix = None     
         self.y_flat = None       
+        
+        self.real_temperatures = []
+        self.real_fields = []
+        self.matched_headers = []
         
         self._load_and_flatten()
 
@@ -301,19 +295,35 @@ class DataSet:
         raw_data = np.loadtxt(self.filename, skiprows=1)
         self.x = raw_data[:, 0]
 
-        selected_columns = []
-        for temp in self.toml_temperatures:
-            for field in self.toml_fields:
-                expected_header = f"{temp}K_{field}T"
+        # Parse all available headers to find T and B
+        header_pattern = re.compile(r"^([0-9]*\.?[0-9]+)K_([0-9]*\.?[0-9]+)T$")
+        parsed_headers = []
+        for idx, h in enumerate(headers):
+            m = header_pattern.match(h)
+            if m:
+                parsed_headers.append({
+                    'T': float(m.group(1)),
+                    'B': float(m.group(2)),
+                    'idx': idx,
+                    'header': h
+                })
 
-                try:
-                    col_idx = headers.index(expected_header)
-                    selected_columns.append(col_idx)
-                except ValueError:
-                    raise ValueError(f"Could not find '{expected_header}' in data file.")
-             
-        self.y_matrix = raw_data[:, selected_columns]
+        selected_columns = []
         
+        for set_t in self.toml_temperatures:
+            for set_b in self.toml_fields:
+                matches = [p for p in parsed_headers 
+                           if np.isclose(p['B'], float(set_b)) and abs(p['T'] - float(set_t)) <= self.temp_tolerance]
+                if not matches:
+                    raise ValueError(f"Could not find a column for {set_t}K_{set_b}T within +/- {self.temp_tolerance}K window.")
+                best_match = min(matches, key=lambda x: abs(x['T'] - float(set_t)))
+                
+                selected_columns.append(best_match['idx'])
+                self.real_temperatures.append(best_match['T'])
+                self.real_fields.append(best_match['B'])
+                self.matched_headers.append(best_match['header'])
+             
+        self.y_matrix = raw_data[:, selected_columns]        
         self.y_flat = self.y_matrix.T.flatten()
 
     def get_x(self):
@@ -344,7 +354,7 @@ class GlobalFitter:
         """
         namespace = {}
         namespace['__temperatures__'] = self.dataset.toml_temperatures
-
+        namespace['__real_temperatures__'] = self.dataset.real_temperatures
         for band in self.bands:
             for param in band.get_parameters():
                 namespace[param.name] = param.value
@@ -716,6 +726,12 @@ class SpinHamiltonian:
     """
     Calculates the energy levels and wavefunctions for a given spin system
     subject to Zero-Field Splitting and an external magnetic field.
+
+    The VTVH MCD magnetization and effective transition dipole extraction 
+    formalism is based on the theoretical framework developed in:
+    Ref: Frank Neese, Edward I. Solomon; MCD C-Term Signs, Saturation Behavior, and Determination 
+    of Band Polarizations in Randomly Oriented Systems with Spin S ≥ 1/2. Applications to S = 1/2 and S = 5/2. 
+    Inorg. Chem. 19 April 1999; 38 (8): 1847–1865.
     """
     def __init__(self, S, D, E, g):
         self.S = S
@@ -928,7 +944,7 @@ class MagnetizationFitter:
         return result
 
 
-def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
+def run_global_sh_fit(bands_dict, flat_real_temps, flat_fields, flat_nominal_temps, mol_config):
     S = mol_config.get('spin', 1.0)
     method = mol_config.get('method', 'least_squares')
     plot_reduced_mag = mol_config.get('plot_reduced_mag', True)
@@ -955,7 +971,7 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
     sh_params['D'] = FitParameter("D", mol_config.get('D', def_D))
     sh_params['E'] = FitParameter("E", mol_config.get('E', def_E))
 
-    fitter = MagnetizationFitter(S, flat_temps, flat_fields, bands_dict, sh_params, symmetry_mode=symmetry_mode)
+    fitter = MagnetizationFitter(S, flat_real_temps, flat_fields, bands_dict, sh_params, symmetry_mode=symmetry_mode)
     result = fitter.run_fit(method=method)
 
     if result.success:
@@ -980,22 +996,19 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
         E_fit = sh_params['E'].value
         g_tensor = [gx_fit, gy_fit, gz_fit]
                 
-        engine = SpinHamiltonian(S, D_fit, E_fit, g_tensor)
-        temps_arr = np.array(flat_temps)
-        fields_arr = np.array(flat_fields)
-        
-        unique_temps = np.unique(temps_arr)
-        max_field = np.max(fields_arr)
+        engine = SpinHamiltonian(S, D_fit, E_fit, g_tensor)       
+        unique_nom_temps = np.unique(flat_nominal_temps)
+        max_field = np.max(flat_fields)
         
         smooth_fields = np.linspace(0.1, max_field * 1.05, 50)
         mag_basis = {}
-        for t in unique_temps:
+        for t in unique_nom_temps:
             mag_basis[t] = []
             for b in smooth_fields:
                 mag_basis[t].append(engine.get_mcd_components(b, t, n_theta=30, n_phi=30))
                 
         target_field = max_field
-        min_t, max_t = np.min(unique_temps), np.max(unique_temps)
+        min_t, max_t = np.min(unique_nom_temps), np.max(unique_nom_temps)
         smooth_temps = np.logspace(np.log10(min_t * 0.8), np.log10(max_t * 5), 100)
         
         iso_basis = []
@@ -1028,7 +1041,7 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
             elif symmetry_mode == "axial":
                 idx = i * 2
                 Mxy, Mxz = band_params[idx : idx+2]
-                Myz = Mxz = Mxz
+                Myz = Mxz
             elif symmetry_mode == "rhombic":
                 idx = i * 3
                 Mxy, Myz, Mxz = band_params[idx : idx+3]
@@ -1052,7 +1065,7 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
             all_plot_params[name] = plot_params
             
             ax = axes_flat[i]
-            plot_sh_curves(ax, name, flat_temps, flat_fields, bands_dict[name], plot_params, mag_basis, smooth_fields, curve_data_rows, plot_reduced_mag=plot_reduced_mag)
+            plot_sh_curves(ax, name, flat_real_temps, flat_fields, bands_dict[name], plot_params, mag_basis, smooth_fields, curve_data_rows, flat_nominal_temps, plot_reduced_mag=plot_reduced_mag)
                 
         for j in range(num_bands, len(axes_flat)):
             axes_flat[j].set_visible(False)
@@ -1061,7 +1074,7 @@ def run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config):
         fig.savefig(out_dir / "magnetization_fits.png", dpi=300, bbox_inches='tight')
         plt.close(fig)
         
-        plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, iso_basis, smooth_temps, target_field, out_dir)
+        plot_isofield_summary(bands_dict, flat_real_temps, flat_fields, all_plot_params, iso_basis, smooth_temps, target_field, out_dir)
         save_sh_results_to_csv(sh_csv_data, D_fit, E_fit, g_tensor, out_dir)
         
         with open(out_dir / "sh_simulated_curves.csv", "w", newline='') as f:
@@ -1078,8 +1091,8 @@ def run_standalone_sh(config):
     mol_config = config['sh']
     temps = config['dataset']['temperatures']
     fields = config['dataset']['fields']
-    
-    flat_temps = [float(t) for t in temps for f in fields]
+    flat_nominal_temps = [float(t) for t in temps for f in fields]
+    flat_real_temps = flat_nominal_temps 
     flat_fields = [float(f) for t in temps for f in fields]
     
     bands_dict = {}
@@ -1097,12 +1110,13 @@ def run_standalone_sh(config):
             bands_dict[band_name] = amps
 
     if bands_dict:
-        run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
+        run_global_sh_fit(bands_dict, flat_real_temps, flat_fields, flat_nominal_temps, mol_config)
 
 def run_magnetization_pipeline(dataset, bands, namespace, mol_config):
-    flat_temps = [float(t) for t in dataset.toml_temperatures for f in dataset.toml_fields]
-    flat_fields = [float(f) for t in dataset.toml_temperatures for f in dataset.toml_fields]
-    
+    flat_real_temps = dataset.real_temperatures
+    flat_fields = dataset.real_fields
+    flat_nominal_temps = [float(t) for t in dataset.toml_temperatures for f in dataset.toml_fields]
+
     x_axis = dataset.get_x()
     bands_dict = {}
     
@@ -1120,47 +1134,50 @@ def run_magnetization_pipeline(dataset, bands, namespace, mol_config):
             bands_dict[band.name] = np.array(true_peak_amps)
             
     if bands_dict:
-        run_global_sh_fit(bands_dict, flat_temps, flat_fields, mol_config)
+        run_global_sh_fit(bands_dict, flat_real_temps, flat_fields, flat_nominal_temps, mol_config)
 
-def plot_sh_curves(ax, band_name, flat_temps, flat_fields, exp_amps, fit_params, mag_basis, smooth_fields, curve_data_rows, plot_reduced_mag=True):
+def plot_sh_curves(ax, band_name, flat_real_temps, flat_fields, exp_amps, fit_params, mag_basis, smooth_fields, curve_data_rows, flat_nominal_temps, plot_reduced_mag=True):
     D, E, Mxy, Myz, Mxz = fit_params
     
-    temps_arr = np.array(flat_temps)
+    real_temps_arr = np.array(flat_real_temps)
+    nom_temps_arr = np.array(flat_nominal_temps)
     fields_arr = np.array(flat_fields)
     amps_arr = np.array(exp_amps)
     
-    unique_temps = np.unique(temps_arr)    
+    unique_nom_temps = np.unique(nom_temps_arr)
     
-    for temp in unique_temps:
-        idx = np.where(temps_arr == temp)[0]
+    for nom_temp in unique_nom_temps:
+        idx = np.where(nom_temps_arr == nom_temp)[0]
+        
         t_fields = fields_arr[idx]
         t_amps = amps_arr[idx]
+        t_real_temps = real_temps_arr[idx]
         
         if plot_reduced_mag:
-            x_exp = (mu_b * t_fields) / (2 * k_B * temp)
+            x_exp = (mu_b * t_fields) / (2 * k_B * t_real_temps)
         else:
             x_exp = t_fields
             
-        p = ax.plot(x_exp, t_amps, marker='o', linestyle='none', label=f'Exp {temp} K')
+        p = ax.plot(x_exp, t_amps, marker='o', linestyle='none', label=f'{nom_temp} K')
         line_color = p[0].get_color()
         
-        for x, y in zip(x_exp, t_amps):
-            curve_data_rows.append([band_name, temp, "Experimental", x, y])
+        for x, y, r_t in zip(x_exp, t_amps, t_real_temps):
+            curve_data_rows.append([band_name, r_t, "Experimental", x, y])
         
         t_smooth_amps = []
         x_smooth = []
         for i, b_mag in enumerate(smooth_fields):
-            ave_xy, ave_yz, ave_zx = mag_basis[temp][i]
+            ave_xy, ave_yz, ave_zx = mag_basis[nom_temp][i]
             sim_val = Mxy * ave_xy + Myz * ave_yz + Mxz * ave_zx
             t_smooth_amps.append(sim_val)
             
             if plot_reduced_mag:
-                x_smooth.append((mu_b * b_mag) / (2 * k_B * temp))
+                x_smooth.append((mu_b * b_mag) / (2 * k_B * nom_temp))
             else:
                 x_smooth.append(b_mag)
                 
         for x, y in zip(x_smooth, t_smooth_amps):
-            curve_data_rows.append([band_name, temp, "Fit", x, y])
+            curve_data_rows.append([band_name, nom_temp, "Fit", x, y])
                 
         ax.plot(x_smooth, t_smooth_amps, linestyle='-', color=line_color)
 
@@ -1228,7 +1245,8 @@ def main():
     dataset = DataSet(
         filename=config['dataset']['filename'],
         toml_fields=config['dataset']['fields'],
-        toml_temperatures=config['dataset']['temperatures']
+        toml_temperatures=config['dataset']['temperatures'],
+        temp_tolerance=config['dataset'].get('temp_tolerance', 0.5)
     )
 
     expected_keys = [str(t) for t in dataset.toml_temperatures]

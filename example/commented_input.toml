@@ -1,0 +1,121 @@
+[dataset]
+filename = "./example/N2Q_MCD_VTVH.txt"
+temperatures = [2.5, 5, 10, 20, 40]
+fields = [10, 7, 5, 3]
+# +/- range allowed around set temperatures to collect real temperature values from the data file header. 
+# Real values are used in Spin-Hamiltonian and temperature-dependent broadening calculations.
+temp_tolerance = 0.5
+
+[fit_settings]
+# Method can be 'least_squares' (default) or 'differential_evolution'. 
+# Users should be mindful of boundary conditions (min/max) for DE to ensure proper convergence.
+method = 'least_suqares'
+
+[sh]
+# Spin-Hamiltonian settings. Remove [sh] block to skip this fitting option.
+# Symmetry can be "rhombic", "axial", or "isotropic". Determines which g-values and transition dipoles float.
+symmetry = "axial"
+spin = 1.0
+method = 'least_squares'
+plot_reduced_mag = true 
+
+# Zero-Field Splitting (ZFS) and g-tensor parameters.
+# Set vary = true to float these parameters during the SH magnetization fit.
+gx = { value = 2.00, vary = false }
+gz = { value = 2.08, vary = false }
+D = { value = 24.3, vary = false }
+E = { value = 0.0, vary = false }
+
+
+
+# ----------------------------------------
+# Band 0 & 1: Vibronic Pseudo-A Pair
+# ----------------------------------------
+[bands.Band0]
+type = "Vibronic"
+center = { value = 10098.1, vary = true }
+width = { value = 355.6, vary = true }
+
+#Number of levels used in the Poisson calculation
+n_levels = 10   
+
+#Spacing between the vibronic peaks (in cm-1)
+vib_spacing = { value = 545.5, vary = true } 
+
+# Huang-Rhys parameter (S) dictating the intensity distribution
+huang_rhys = { value = 2.107, vary = true }
+
+# Expression constraint: Forces Band 0 to have exact opposite amplitudes of Band 1
+amplitudes = { expr = "-Band1.amplitudes" }
+# temp_broadening and vib_energy are used for t-dependent broadening. 
+# vib_energy is the ground vibrational energy level and temp_broadening is the prefactor. 
+# (Uncomment below to enable)
+# temp_broadening = { value = 10.0000, vary = true, min = 0, max = 50 }
+# vib_energy = { value = 200.0000, vary = true, min = 200, max= 780 }
+
+
+[bands.Band1]
+type = "Vibronic"
+center = { value = 10118.2, vary = true}
+width = { value = 383.8, vary = true }
+n_levels = 10
+vib_spacing = { value = 600.4, vary = true }
+huang_rhys = { value = 2.107, vary = true }
+# temp_broadening = { value = 10.0000, vary = true, min = 0, max = 50 }
+# vib_energy = { value = 200.0000, vary = true, min = 200, max= 780 }
+
+
+# Standard amplitude entry. A list of intensities for each temperature/field condition.
+# Must be grouped by temperature.
+[bands.Band1.amplitudes]
+"2.5" = [1734.715, 1157.305, 804.757, 474.910]
+"5" = [1734.715, 1157.305, 804.757, 474.910]
+"10" = [2224.404, 1535.817, 1092.616, 649.398]
+"20" = [2660.479, 1886.332, 1353.056, 817.669]
+"40" = [2041.266, 1441.337, 1033.685, 623.170]
+
+# ----------------------------------------
+# Band 2 & 3: Gaussian Pseudo-A Pair
+# ----------------------------------------
+[bands.Band2]
+type = "Gaussian"
+center = { value = 11179.5, vary = true }
+width = { value = 1760.5, vary = true}
+amplitudes = { expr = "-Band3.amplitudes" }
+# temp_broadening = { value = 150.0000, vary = true, min = 0, max = 400 }
+# vib_energy = { value = 200.0000, vary = true, min = 200, max= 500 }
+
+
+[bands.Band3]
+type = "Gaussian"
+center = { value = 12802.5, vary = true }
+width = { value = 1216.0, vary = true}
+# temp_broadening = { value = 150.0000, vary = true, min = 0, max = 400 }
+# vib_energy = { value = 200.0000, vary = true, min = 200, max= 500 }
+
+[bands.Band3.amplitudes]
+"2.5" = [168.423, 117.013, 83.573, 50.605]
+"5" = [168.423, 117.013, 83.573, 50.605]
+"10" = [184.516, 129.315, 93.076, 55.518]
+"20" = [198.011, 140.498, 99.678, 60.097]
+"40" = [179.237, 125.392, 89.653, 53.733]
+
+# ----------------------------------------
+# Band 4: Pseudo-Voigt
+# ----------------------------------------
+[bands.Band4]
+type = "PseudoVoigt"
+center = { value = 12000.0, vary = true }
+width = { value = 500.0, vary = true }
+# temp_broadening = { value = 150.0000, vary = true, min = 0, max = 400 }
+# vib_energy = { value = 200.0000, vary = true, min = 200, max= 500 }
+
+# Specific to PseudoVoigt: The fraction (0 to 1) of Lorentzian character vs Gaussian character.
+lorentz_frac = { value = 0.5, vary = true, min = 0.0, max = 1.0 }
+
+[bands.Band4.amplitudes]
+"2.5" = [168.423, 117.013, 83.573, 50.605]
+"5" = [168.423, 117.013, 83.573, 50.605]
+"10" = [184.516, 129.315, 93.076, 55.518]
+"20" = [198.011, 140.498, 99.678, 60.097]
+"40" = [179.237, 125.392, 89.653, 53.733]
