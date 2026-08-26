@@ -6,12 +6,12 @@ import numpy as np
 from scipy.optimize import differential_evolution, least_squares
 import matplotlib.pyplot as plt
 import re
+from typing import Any
 
 mu_b = 0.46686  # Bohr magneton in cm-1/T
 k_B = 0.695     # Boltzmann constant in cm-1/K
 
-
-def load_config(filepath):
+def load_config(filepath: str | Path) -> dict:
 
     path = Path(filepath)
     if not path.exists():
@@ -29,7 +29,7 @@ class FitParameter:
     """
     Reads in fit parameters from input file
     """
-    def __init__(self, name, setup_dict):
+    def __init__(self, name: str, setup_dict: dict) -> None:
         self.name = name
 
         self.value = setup_dict.get('value', 0.0)
@@ -40,7 +40,7 @@ class FitParameter:
         if self.expr is not None:
             self.vary = False
 
-    def get_value(self, namespace=None, evaluator=None):
+    def get_value(self, namespace: dict | None = None, evaluator: Any = None) -> float | np.ndarray:
         if self.expr:
             try:
                 if evaluator is None:
@@ -56,16 +56,16 @@ class FitParameter:
                 
         return self.value
 
-    def set_value(self, new_value):
+    def set_value(self, new_value: float) -> None:
         self.value = max(self.min_val, min(self.max_val, new_value))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         state = f"expr='{self.expr}'" if self.expr else f"vary={self.vary}"
         return f"<FitParameter '{self.name}': value={self.value:.4f}, {state}>"
 
 class ArrayParameter:
     "Reads in array of amplitudes from input file, separate class than scalars"
-    def __init__(self, name, array_dict, expected_keys = None):
+    def __init__(self, name: str, array_dict: dict, expected_keys: list[str] | None = None) -> None:
         self.name = name
         self.expr = array_dict.get('expr', None)
 
@@ -97,7 +97,7 @@ class ArrayParameter:
             self.min_val = array_dict.get('min', -np.inf)
             self.max_val = array_dict.get('max', np.inf)
 
-    def get_value(self, namespace=None, evaluator=None):
+    def get_value(self, namespace: dict | None = None, evaluator: Any = None) -> np.ndarray | float:
         if self.expr:
             try:
                 if evaluator is None:
@@ -113,7 +113,7 @@ class ArrayParameter:
                         
         return self.value
 
-    def set_value(self, new_array):
+    def set_value(self, new_array: np.ndarray) -> None:
         if self.expr is not None:
             raise ValueError(f"Cannot manually set '{self.name}'; constrained by {self.expr}")
             
@@ -123,7 +123,7 @@ class SpectralBand:
     """
     Default band type used to read in parameters present for all band types (center, width, amplitudes)
     """
-    def __init__(self, name, config_dict,expected_keys=None):
+    def __init__(self, name: str, config_dict: dict, expected_keys: list[str] | None = None) -> None:
         self.name = name
         self.type = config_dict.get('type')
         
@@ -140,26 +140,26 @@ class SpectralBand:
             f"{name}_vib_energy", 
             config_dict.get('vib_energy', {'value': 200.0, 'vary': False})
         )
-    def get_parameters(self):
+    def get_parameters(self) -> list:
         params = [self.center, self.width, self.amplitudes]
         if self.has_temp: params.append(self.temp_broadening)
         if self.has_vib: params.append(self.vib_energy)
         return params
         
-    def evaluate(self, x, namespace=None, evaluator=None):
+    def evaluate(self, x: np.ndarray, namespace: dict | None = None, evaluator: Any = None) -> np.ndarray:
         raise NotImplementedError("Must be implemented by a subclass.")
 
 class GaussianBand(SpectralBand):
     """Class used for specific Gaussian band, used to calculate the lineshape.
     Gets center, width, and amplitudes from SpectralBand.
     """
-    def __init__(self, name, config_dict, expected_keys = None):
+    def __init__(self, name: str, config_dict: dict, expected_keys: list[str] | None = None) -> None:
         super().__init__(name, config_dict, expected_keys)
 
-    def get_parameters(self):
+    def get_parameters(self) -> list:
         return super().get_parameters()
 
-    def evaluate(self, x, namespace=None, evaluator=None):
+    def evaluate(self, x: np.ndarray, namespace: dict | None = None, evaluator: Any = None) -> np.ndarray:
         center = self.center.get_value(namespace,evaluator)
         w0 = self.width.get_value(namespace,evaluator)
         A = self.temp_broadening.get_value(namespace,evaluator)
@@ -181,18 +181,18 @@ class PseudoVoigtBand(SpectralBand):
     Calculated Pseudo-Voigt lineshape, a linear combination of a Gaussian and a Lorentzian profile.
     Gets center, width, and amplitude from SpectralBand.
     """
-    def __init__(self, name, config_dict, expected_keys=None):
+    def __init__(self, name: str, config_dict: dict, expected_keys: list[str] | None = None) -> None:
         super().__init__(name, config_dict, expected_keys)
         self.lorentz_frac = FitParameter(
                 f"{name}_lorentz_frac", 
                 config_dict.get('lorentz_frac', {'value': 0.5, 'min': 0.0, 'max': 1.0})
             )
 
-    def get_parameters(self):
+    def get_parameters(self) -> list:
         base_params = super().get_parameters()
         return base_params + [self.lorentz_frac]
 
-    def evaluate(self, x, namespace=None, evaluator=None):
+    def evaluate(self, x: np.ndarray, namespace: dict | None = None, evaluator: Any = None) -> np.ndarray:
         center = self.center.get_value(namespace,evaluator)
         w0 = self.width.get_value(namespace,evaluator)
         eta = self.lorentz_frac.get_value(namespace,evaluator)
@@ -219,7 +219,7 @@ class VibronicBand(SpectralBand):
     Uses standard Gaussian shape for each band.
     Gets center, width, and amplitudes from SpectralBand.
     """
-    def __init__(self, name, config_dict, expected_keys=None):
+    def __init__(self, name: str, config_dict: dict, expected_keys: list[str] | None = None) -> None:
         super().__init__(name, config_dict, expected_keys)
         
         # Add the vibronic-specific parameters
@@ -227,12 +227,12 @@ class VibronicBand(SpectralBand):
         self.huang_rhys = FitParameter(f"{name}_huang_rhys", config_dict['huang_rhys'])
         self.n_levels = config_dict.get('n_levels', 10)
 
-    def get_parameters(self):
+    def get_parameters(self) -> list:
         """Override to include the new parameters alongside the base ones."""
         base_params = super().get_parameters()
         return base_params + [self.vib_spacing, self.huang_rhys]
         
-    def evaluate(self, x, namespace=None, evaluator=None):
+    def evaluate(self, x: np.ndarray, namespace: dict | None = None, evaluator: Any = None) -> np.ndarray:
         """Calculates the full sum of the vibronic progression."""
         c = self.center.get_value(namespace,evaluator)
         w = self.width.get_value(namespace,evaluator)
@@ -267,7 +267,7 @@ class DataSet:
     Loads experimental VTVH data, aligns it with the requested TOML conditions,
     and flattens it for the least-squares minimizer.
     """
-    def __init__(self, filename, toml_fields, toml_temperatures, temp_tolerance=0.5):
+    def __init__(self, filename: str | Path, toml_fields: list[float], toml_temperatures: list[float], temp_tolerance: float = 0.5) -> None:
         self.filename = Path(filename)
         self.toml_fields = toml_fields            
         self.toml_temperatures = toml_temperatures 
@@ -284,7 +284,7 @@ class DataSet:
         
         self._load_and_flatten()
 
-    def _load_and_flatten(self):
+    def _load_and_flatten(self) -> None:
         """Reads the text file and formats the data for the fitter."""
         if not self.filename.exists():
             raise FileNotFoundError(f"Data file not found: {self.filename}")
@@ -326,14 +326,14 @@ class DataSet:
         self.y_matrix = raw_data[:, selected_columns]        
         self.y_flat = self.y_matrix.T.flatten()
 
-    def get_x(self):
+    def get_x(self) -> np.ndarray:
         return self.x
         
-    def get_y_flat(self):
+    def get_y_flat(self) -> np.ndarray:
         return self.y_flat
 
 class GlobalFitter:
-    def __init__(self, dataset, bands, method = 'least_squares'):
+    def __init__(self, dataset: DataSet, bands: list[SpectralBand], method: str = 'least_squares') -> None:
         self.dataset = dataset
         self.bands = bands  
         self.method = method
@@ -341,14 +341,14 @@ class GlobalFitter:
         self.floating_params = []
         self._gather_floating_parameters()
 
-    def _gather_floating_parameters(self):
+    def _gather_floating_parameters(self) -> None:
         """Finds every parameterwhere vary == True."""
         for band in self.bands:
             for param in band.get_parameters():
                 if param.vary:
                     self.floating_params.append(param)
 
-    def _build_namespace(self):
+    def _build_namespace(self) -> dict:
         """
         Builds a dictionary of all current parameter values so that constrained parameters can evaluate.
         """
@@ -361,7 +361,7 @@ class GlobalFitter:
             
         return namespace
 
-    def _get_initial_guesses(self):
+    def _get_initial_guesses(self) -> np.ndarray:
         """Grabs initial values for fitting"""
         x0 = []
         for param in self.floating_params:
@@ -372,7 +372,7 @@ class GlobalFitter:
                 x0.append(val)
         return np.array(x0)
 
-    def residual(self, scipy_x):
+    def residual(self, scipy_x: np.ndarray) -> np.ndarray:
         """
         Core function for minimization, calculate residualss
         """
@@ -402,12 +402,12 @@ class GlobalFitter:
         # Return the 1D residual
         return total_simulation - self.dataset.get_y_flat()
 
-    def cost_function(self, scipy_x):
+    def cost_function(self, scipy_x: np.ndarray) -> float:
         """Converts residual array into a single scalar value for DE."""
         res_array = self.residual(scipy_x)
         return np.sum(res_array **2)
 
-    def _get_bounds(self):
+    def _get_bounds(self) -> list[tuple[float, float]]:
         bounds = []
 
         # Calculates spectral window with buffer for default min/max
@@ -446,7 +446,7 @@ class GlobalFitter:
                 
         return bounds
 
-    def run(self):
+    def run(self) -> Any:
         """Executes the fit using least squares or differential evolution."""
         x0 = self._get_initial_guesses()
 
@@ -474,7 +474,7 @@ class GlobalFitter:
         self.residual(result.x)
         return result
 
-def plot_results(dataset, bands, namespace):
+def plot_results(dataset: DataSet, bands: list[SpectralBand], namespace: dict) -> None:
     x_axis = dataset.get_x()
     temps = dataset.toml_temperatures
     fields = dataset.toml_fields
@@ -514,7 +514,7 @@ def plot_results(dataset, bands, namespace):
     
 
 
-def save_results_to_toml(filename, dataset, bands):
+def save_results_to_toml(filename: str, dataset: DataSet, bands: list[SpectralBand]) -> None:
     """Writes the fit results into a TOML output file."""
     with open(filename, 'w', encoding='utf-8') as f:
         
@@ -561,7 +561,7 @@ def save_results_to_toml(filename, dataset, bands):
                         current_idx += size
                     f.write("\n")
 
-def save_results_to_csv(dataset, bands, namespace, param_filename="output_parameters.csv", amp_filename="output_amplitudes.csv"):
+def save_results_to_csv(dataset: DataSet, bands: list[SpectralBand], namespace: dict, param_filename: str = "output_parameters.csv", amp_filename: str = "output_amplitudes.csv") -> None:
     """
     Exports the optimized fit results into two separate CSV files.
     """
@@ -617,7 +617,7 @@ def save_results_to_csv(dataset, bands, namespace, param_filename="output_parame
                     
             writer.writerow(row)
 
-def save_sh_results_to_csv(sh_data, D, E, g, out_dir, filename="sh_fit_parameters.csv"):
+def save_sh_results_to_csv(sh_data: list, D: float, E: float, g: float | list[float], out_dir: Path, filename: str = "sh_fit_parameters.csv") -> None:
     import csv
     filepath = out_dir / filename
     with open(filepath, mode='w', newline='') as f:
@@ -635,7 +635,7 @@ def save_sh_results_to_csv(sh_data, D, E, g, out_dir, filename="sh_fit_parameter
             writer.writerow([name, f"{Mxy:.2f}", f"{Myz:.2f}", f"{Mxz:.2f}", 
                              f"{px:.2f}", f"{py:.2f}", f"{pz:.2f}"])
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """Parses command line arguments to find input"""
     parser = argparse.ArgumentParser(description="Run the global fitting routine with parameters from TOML input file.")
 
@@ -651,7 +651,7 @@ def parse_args():
     )
     return parser.parse_args()
 
-def save_spectra_to_csv(dataset, bands, namespace, filename='output_spectra.csv'):
+def save_spectra_to_csv(dataset: DataSet, bands: list[SpectralBand], namespace: dict, filename: str = 'output_spectra.csv') -> None:
     """Exports raw x-axis, expeirmenta y-values, total fit, and individual band fits"""
     x_axis = dataset.get_x()
     temps = dataset.toml_temperatures
@@ -697,7 +697,7 @@ def save_spectra_to_csv(dataset, bands, namespace, filename='output_spectra.csv'
                     
             writer.writerow(row_data)
 
-def get_spin_matrices(S):
+def get_spin_matrices(S: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Generates the Sx, Sy, and Sz spin operator matrices for a given spin S.
     Returns complex numpy arrays of shape (2S+1, 2S+1).
@@ -733,7 +733,7 @@ class SpinHamiltonian:
     of Band Polarizations in Randomly Oriented Systems with Spin S ≥ 1/2. Applications to S = 1/2 and S = 5/2. 
     Inorg. Chem. 19 April 1999; 38 (8): 1847–1865.
     """
-    def __init__(self, S, D, E, g):
+    def __init__(self, S: float, D: float, E: float, g: float | list[float]) -> None:
         self.S = S
         self.Sx, self.Sy, self.Sz = get_spin_matrices(S)
         
@@ -753,7 +753,7 @@ class SpinHamiltonian:
         self.H_zfs = D * (self.Sz @ self.Sz - (S_sq / 3.0) * identity) + \
                      E * (self.Sx @ self.Sx - self.Sy @ self.Sy)
 
-    def solve(self, B_vector):
+    def solve(self, B_vector: list[float]) -> tuple[np.ndarray, np.ndarray]:
         """
         Applies the magnetic field (Zeeman effect), diagonalizes the matrix,
         and returns the energies and spin expectation values.
@@ -778,7 +778,7 @@ class SpinHamiltonian:
         
         return energies, exp_S
 
-    def get_mcd_components(self, B_mag, temp, n_theta=30, n_phi=30):
+    def get_mcd_components(self, B_mag: float, temp: float, n_theta: int = 30, n_phi: int = 30) -> tuple[float, float, float]:
         """
         Calculates the orientation-averaged MCD basis components (xy, yz, zx)
         decoupled from the transition dipoles.
@@ -828,7 +828,7 @@ class MagnetizationFitter:
     Fits experimental VTVH amplitudes to extract Zero-Field Splitting (D, E),
     an isotropic g-value, and effective transition dipole moments.
     """
-    def __init__(self, S, temps, fields, exp_norm_dict, sh_params, symmetry_mode="isotropic"):
+    def __init__(self, S: float, temps: list[float], fields: list[float], exp_norm_dict: dict, sh_params: dict, symmetry_mode: str = "isotropic") -> None:
         self.S = S
         self.temps = temps
         self.fields = fields
@@ -847,7 +847,7 @@ class MagnetizationFitter:
             self.scale_factors[name] = sf
             self.exp_norm_dict[name] = np.array(amps) / sf
 
-    def residual(self, params):
+    def residual(self, params: list[float]) -> np.ndarray:
         for i, param in enumerate(self.floating_sh_params):
             param.set_value(params[i])
             
@@ -903,11 +903,11 @@ class MagnetizationFitter:
             
         return np.concatenate(all_residuals)
 
-    def cost_function(self, params):
+    def cost_function(self, params: list[float]) -> float:
         res_array = self.residual(params)
         return np.sum(res_array ** 2)
 
-    def run_fit(self, method='least_squares'):
+    def run_fit(self, method: str = 'least_squares') -> Any:
         guess, lb, ub = [], [], []
         
         # Load bounds for floating Spin-Hamiltonian parameters
@@ -944,7 +944,7 @@ class MagnetizationFitter:
         return result
 
 
-def run_global_sh_fit(bands_dict, flat_real_temps, flat_fields, flat_nominal_temps, mol_config):
+def run_global_sh_fit(bands_dict: dict, flat_real_temps: list[float], flat_fields: list[float], flat_nominal_temps: list[float], mol_config: dict) -> None:
     S = mol_config.get('spin', 1.0)
     method = mol_config.get('method', 'least_squares')
     plot_reduced_mag = mol_config.get('plot_reduced_mag', True)
@@ -1084,7 +1084,7 @@ def run_global_sh_fit(bands_dict, flat_real_temps, flat_fields, flat_nominal_tem
     else:
         print(f"Global fit failed: {result.message}")
 
-def run_standalone_sh(config):
+def run_standalone_sh(config: dict) -> None:
     if 'sh' not in config:
         raise ValueError("Cannot run SH solver: Missing [sh] block in TOML.")
         
@@ -1112,7 +1112,7 @@ def run_standalone_sh(config):
     if bands_dict:
         run_global_sh_fit(bands_dict, flat_real_temps, flat_fields, flat_nominal_temps, mol_config)
 
-def run_magnetization_pipeline(dataset, bands, namespace, mol_config):
+def run_magnetization_pipeline(dataset: DataSet, bands: list[SpectralBand], namespace: dict, mol_config: dict) -> None:
     flat_real_temps = dataset.real_temperatures
     flat_fields = dataset.real_fields
     flat_nominal_temps = [float(t) for t in dataset.toml_temperatures for f in dataset.toml_fields]
@@ -1136,7 +1136,7 @@ def run_magnetization_pipeline(dataset, bands, namespace, mol_config):
     if bands_dict:
         run_global_sh_fit(bands_dict, flat_real_temps, flat_fields, flat_nominal_temps, mol_config)
 
-def plot_sh_curves(ax, band_name, flat_real_temps, flat_fields, exp_amps, fit_params, mag_basis, smooth_fields, curve_data_rows, flat_nominal_temps, plot_reduced_mag=True):
+def plot_sh_curves(ax: plt.Axes, band_name: str, flat_real_temps: list[float], flat_fields: list[float], exp_amps: np.ndarray, fit_params: list[float], mag_basis: dict, smooth_fields: np.ndarray, curve_data_rows: list, flat_nominal_temps: list[float], plot_reduced_mag: bool = True) -> None:
     D, E, Mxy, Myz, Mxz = fit_params
     
     real_temps_arr = np.array(flat_real_temps)
@@ -1187,7 +1187,7 @@ def plot_sh_curves(ax, band_name, flat_real_temps, flat_fields, exp_amps, fit_pa
         ax.set_xlabel("Magnetic Field (T)")
     ax.set_ylabel("MCD Amplitude")
 
-def plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, iso_basis, smooth_temps, target_field, out_dir):    
+def plot_isofield_summary(bands_dict: dict, flat_temps: list[float], flat_fields: list[float], all_plot_params: dict, iso_basis: list, smooth_temps: np.ndarray, target_field: float, out_dir: Path) -> None:
     temps_arr = np.array(flat_temps)
     fields_arr = np.array(flat_fields)
         
@@ -1234,7 +1234,7 @@ def plot_isofield_summary(bands_dict, flat_temps, flat_fields, all_plot_params, 
     plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.close()
 
-def main():
+def main() -> None:
     args = parse_args()
     config = load_config(args.config_file)
 
@@ -1271,7 +1271,6 @@ def main():
     
     # Run the Optimization
     result = fitter.run()
-
     
     if result.success:
         final_namespace = fitter._build_namespace()
@@ -1280,7 +1279,6 @@ def main():
         save_spectra_to_csv(dataset, bands, final_namespace)
         plot_results(dataset, bands, final_namespace)
         
-
         if 'sh' in config:
             run_magnetization_pipeline(dataset, bands, final_namespace, config['sh'])
 
