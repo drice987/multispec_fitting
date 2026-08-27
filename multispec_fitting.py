@@ -7,6 +7,7 @@ from scipy.optimize import differential_evolution, least_squares
 import matplotlib.pyplot as plt
 import re
 from typing import Any
+from asteval import Interpreter
 
 mu_b = 0.46686  # Bohr magneton in cm-1/T
 k_B = 0.695     # Boltzmann constant in cm-1/K
@@ -44,7 +45,6 @@ class FitParameter:
         if self.expr:
             try:
                 if evaluator is None:
-                    from asteval import Interpreter
                     evaluator = Interpreter()                
                 safe_expr = self.expr.replace('.', '_')
                 for key, val in namespace.items():
@@ -337,7 +337,7 @@ class GlobalFitter:
         self.dataset = dataset
         self.bands = bands  
         self.method = method
-
+        self.aeval = Interpreter()
         self.floating_params = []
         self._gather_floating_parameters()
 
@@ -392,11 +392,8 @@ class GlobalFitter:
         x_axis = self.dataset.get_x()
         total_simulation = np.zeros_like(self.dataset.get_y_flat())
 
-        from asteval import Interpreter
-        aeval = Interpreter()
-
         for band in self.bands:
-            simulated_matrix = band.evaluate(x_axis, namespace)
+            simulated_matrix = band.evaluate(x_axis, namespace, evaluator=self.aeval)
             total_simulation += simulated_matrix.flatten()
             
         # Return the 1D residual
@@ -618,7 +615,6 @@ def save_results_to_csv(dataset: DataSet, bands: list[SpectralBand], namespace: 
             writer.writerow(row)
 
 def save_sh_results_to_csv(sh_data: list, D: float, E: float, g: float | list[float], out_dir: Path, filename: str = "sh_fit_parameters.csv") -> None:
-    import csv
     filepath = out_dir / filename
     with open(filepath, mode='w', newline='') as f:
         writer = csv.writer(f)
@@ -886,7 +882,7 @@ class MagnetizationFitter:
             elif self.symmetry_mode == "axial":
                 idx = i * 2
                 Mxy, Mxz = band_params[idx : idx+2]
-                Myz = Mxz = Mxz
+                Myz = Mxz
             elif self.symmetry_mode == "rhombic":
                 idx = i * 3
                 Mxy, Myz, Mxz = band_params[idx : idx+3]
@@ -974,11 +970,7 @@ def run_global_sh_fit(bands_dict: dict, flat_real_temps: list[float], flat_field
     fitter = MagnetizationFitter(S, flat_real_temps, flat_fields, bands_dict, sh_params, symmetry_mode=symmetry_mode)
     result = fitter.run_fit(method=method)
 
-    if result.success:
-        from pathlib import Path
-        import csv
-        import math
-        
+    if result.success:        
         for i, param in enumerate(fitter.floating_sh_params):
             param.set_value(result.x[i])
             
