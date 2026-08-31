@@ -33,7 +33,7 @@ pip install -r requirements.txt
 
 ## Quick Start
 The software is executed directly from command line and relies on a single .toml config file to define the dataset, initial guesses, and constraints.
-1. **Configure the fit:** Edit the input file (e.g., example/N2Q_t_indep_width.toml) to define temperatures, magnetic fields, and spectral band parameters.
+1. **Configure the fit:** Edit the input file (e.g., example/N2Q_t_indep_width.toml) to define temperatures, magnetic fields, and spectral band parameters. A detailed input explaining the variables is found at example/commented_input.toml
 2. **Run the fit** Execute the script in terminal:
 ```bash
 python multispec_fitting.py python example/N2Q_t-indep_width.toml
