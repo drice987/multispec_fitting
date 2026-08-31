@@ -1,5 +1,7 @@
 [dataset]
 filename = "./example/N2Q_MCD_VTVH.txt"
+#Set temperatures and fields to gather sets of data from input. If there are no temperatures and fields listed then data will be fit without any vtvh treatment.
+#If you have one field or temperature, you currently still need to input the single value in order to access the vtvh features.
 temperatures = [2.5, 5, 10, 20, 40]
 fields = [10, 7, 5, 3]
 # +/- range allowed around set temperatures to collect real temperature values from the data file header. 
@@ -12,7 +14,8 @@ temp_tolerance = 0.5
 method = 'least_suqares'
 
 [sh]
-# Spin-Hamiltonian settings. Remove [sh] block to skip this fitting option.
+# Spin Hamiltonian settings. Remove [sh] block to skip this fitting option.
+# Spin Hamiltonian mode can be ran with only this block, and amplitudes for each band, in order to bypass global spectral fitting and just perform the spin Hamiltonian fitting.
 # Symmetry can be "rhombic", "axial", or "isotropic". Determines which g-values and transition dipoles float.
 symmetry = "axial"
 spin = 1.0

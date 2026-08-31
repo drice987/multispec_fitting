@@ -78,11 +78,13 @@ class ArrayParameter:
             flat_values = []
             self.row_keys = []
             self.row_sizes = []
-            keys_to_load = expected_keys if expected_keys else [k for k in array_dict]
+            keys_to_load = expected_keys if expected_keys else [k for k in array_dict if k not in ('min', 'max', 'expr')]
 
             for key in keys_to_load:
                 if key in array_dict:
                     values = array_dict[key]
+                    if isinstance(values, (int, float)):
+                        values = [values]
                     self.row_keys.append(key)
                     self.row_sizes.append(len(values))
                     flat_values.extend(values)
@@ -264,28 +266,26 @@ class VibronicBand(SpectralBand):
 
 class DataSet:
     """
-    Loads experimental VTVH data, aligns it with the requested TOML conditions,
+    Loads experimental data, aligns it with the requested TOML conditions,
     and flattens it for the least-squares minimizer.
     """
-    def __init__(self, filename: str | Path, toml_fields: list[float], toml_temperatures: list[float], temp_tolerance: float = 0.5) -> None:
-        self.filename = Path(filename)
-        self.toml_fields = toml_fields            
-        self.toml_temperatures = toml_temperatures 
-        
-        self.temp_tolerance = temp_tolerance 
-        
+    def __init__(self, dataset_config: dict) -> None:
+        self.filename = Path(dataset_config['filename'])
+        self.temp_tolerance = dataset_config.get('temp_tolerance', 0.5)
+        self.is_vtvh = 'temperatures' in dataset_config and 'fields' in dataset_config
+        self.toml_temperatures = dataset_config.get('temperatures', [])
+        self.toml_fields = dataset_config.get('fields', [])
+        self.toml_columns = dataset_config.get('columns', [])
         self.x = None
         self.y_matrix = None     
         self.y_flat = None       
-        
         self.real_temperatures = []
         self.real_fields = []
         self.matched_headers = []
-        
+        self.conditions = [] 
         self._load_and_flatten()
 
     def _load_and_flatten(self) -> None:
-        """Reads the text file and formats the data for the fitter."""
         if not self.filename.exists():
             raise FileNotFoundError(f"Data file not found: {self.filename}")
             
@@ -295,33 +295,47 @@ class DataSet:
         raw_data = np.loadtxt(self.filename, skiprows=1)
         self.x = raw_data[:, 0]
 
-        # Parse all available headers to find T and B
-        header_pattern = re.compile(r"^([0-9]*\.?[0-9]+)K_([0-9]*\.?[0-9]+)T$")
-        parsed_headers = []
-        for idx, h in enumerate(headers):
-            m = header_pattern.match(h)
-            if m:
-                parsed_headers.append({
-                    'T': float(m.group(1)),
-                    'B': float(m.group(2)),
-                    'idx': idx,
-                    'header': h
-                })
-
         selected_columns = []
         
-        for set_t in self.toml_temperatures:
-            for set_b in self.toml_fields:
-                matches = [p for p in parsed_headers 
-                           if np.isclose(p['B'], float(set_b)) and abs(p['T'] - float(set_t)) <= self.temp_tolerance]
-                if not matches:
-                    raise ValueError(f"Could not find a column for {set_t}K_{set_b}T within +/- {self.temp_tolerance}K window.")
-                best_match = min(matches, key=lambda x: abs(x['T'] - float(set_t)))
+        if self.is_vtvh:
+            header_pattern = re.compile(r"^([0-9]*\.?[0-9]+)K_([0-9]*\.?[0-9]+)T$")
+            parsed_headers = []
+            for idx, h in enumerate(headers):
+                m = header_pattern.match(h)
+                if m:
+                    parsed_headers.append({
+                        'T': float(m.group(1)),
+                        'B': float(m.group(2)),
+                        'idx': idx,
+                        'header': h
+                    })
+
+            for set_t in self.toml_temperatures:
+                for set_b in self.toml_fields:
+                    matches = [p for p in parsed_headers 
+                               if np.isclose(p['B'], float(set_b)) and abs(p['T'] - float(set_t)) <= self.temp_tolerance]
+                    if not matches:
+                        raise ValueError(f"Could not find a column for {set_t}K_{set_b}T within +/- {self.temp_tolerance}K window.")
+                    best_match = min(matches, key=lambda x: abs(x['T'] - float(set_t)))
+                    
+                    selected_columns.append(best_match['idx'])
+                    self.real_temperatures.append(best_match['T'])
+                    self.real_fields.append(best_match['B'])
+                    self.matched_headers.append(best_match['header'])
+                    self.conditions.append(f"{set_t}K_{set_b}T")
+        else:
+            if not self.toml_columns:
+                self.toml_columns = headers[1:]
                 
-                selected_columns.append(best_match['idx'])
-                self.real_temperatures.append(best_match['T'])
-                self.real_fields.append(best_match['B'])
-                self.matched_headers.append(best_match['header'])
+            for col_name in self.toml_columns:
+                if col_name not in headers:
+                    raise ValueError(f"Column '{col_name}' not found in data file headers: {headers}")
+                idx = headers.index(col_name)
+                selected_columns.append(idx)
+                self.real_temperatures.append(0.0) 
+                self.real_fields.append(0.0)
+                self.matched_headers.append(col_name)
+                self.conditions.append(col_name)
              
         self.y_matrix = raw_data[:, selected_columns]        
         self.y_flat = self.y_matrix.T.flatten()
@@ -473,83 +487,82 @@ class GlobalFitter:
 
 def plot_results(dataset: DataSet, bands: list[SpectralBand], namespace: dict) -> None:
     x_axis = dataset.get_x()
-    temps = dataset.toml_temperatures
-    fields = dataset.toml_fields
+    conditions = dataset.conditions
+    n_plots = len(conditions)
     
-    n_rows = len(temps)
-    n_cols = len(fields)
+    if dataset.is_vtvh:
+        n_rows = len(dataset.toml_temperatures)
+        n_cols = len(dataset.toml_fields)
+    else:
+        n_cols = min(3, n_plots)
+        n_rows = math.ceil(n_plots / n_cols)
     
     fig, axes = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 3 * n_rows), squeeze=False)
+    axes_flat = axes.flatten()
     
-    for i, temp in enumerate(temps):
-        for j, field in enumerate(fields):
-            ax = axes[i, j]
-            matrix_idx = (i * n_cols) + j
+    for idx, cond in enumerate(conditions):
+        ax = axes_flat[idx]
+        
+        y_raw = dataset.y_matrix.T[idx]
+        ax.plot(x_axis, y_raw, color='grey', label='Experimental', alpha=0.7)
+        
+        total_sim = np.zeros_like(x_axis)
+        
+        for band in bands:
+            band_matrix = band.evaluate(x_axis, namespace)
+            band_y = band_matrix[idx]
+            ax.plot(x_axis, band_y, linestyle='--', linewidth=1, label=band.name)
+            total_sim += band_y
             
-            y_raw = dataset.y_matrix.T[matrix_idx]
-            ax.plot(x_axis, y_raw, color='grey', label='Experimental', alpha=0.7)
-            
-            total_sim = np.zeros_like(x_axis)
-            
-            for band in bands:
-                band_matrix = band.evaluate(x_axis, namespace)
-                band_y = band_matrix[matrix_idx]
-                ax.plot(x_axis, band_y, linestyle='--', linewidth=1, label=band.name)
-                total_sim += band_y
-                
-            ax.plot(x_axis, total_sim, color='black', linewidth=1.2, label='Total Fit')
-            
-            ax.set_title(f"{temp}K {field}T")
-            ax.invert_xaxis()
-            
-            if i == 0 and j == n_cols - 1:
-                ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left", ncol=2, fontsize='small')
+        ax.plot(x_axis, total_sim, color='black', linewidth=1.2, label='Total Fit')
+        
+        ax.set_title(cond)
+        ax.invert_xaxis()
+        
+        if idx == len(conditions) - 1: 
+            ax.legend(bbox_to_anchor=(1.04, 1), loc="upper left", ncol=2, fontsize='small')
+
+    for j in range(len(conditions), len(axes_flat)):
+        axes_flat[j].set_visible(False)
 
     plt.tight_layout()
     plt.savefig("fit_results.png", dpi=300, bbox_inches='tight')
     plt.close()
-    
-
 
 def save_results_to_toml(filename: str, dataset: DataSet, bands: list[SpectralBand]) -> None:
     """Writes the fit results into a TOML output file."""
     with open(filename, 'w', encoding='utf-8') as f:
         
-        # Write the Dataset block
         f.write("[dataset]\n")
         f.write(f'filename = "{dataset.filename.name}"\n')
-        f.write(f"fields = {dataset.toml_fields}\n")
-        temps_formatted = ", ".join([f'"{t}"' if isinstance(t, str) else str(t) for t in dataset.toml_temperatures])
-        f.write(f"temperatures = [{temps_formatted}]\n\n")
-        
-        # Write the Bands
+        if dataset.is_vtvh:
+            f.write(f"fields = {dataset.toml_fields}\n")
+            temps_formatted = ", ".join([f'"{t}"' if isinstance(t, str) else str(t) for t in dataset.toml_temperatures])
+            f.write(f"temperatures = [{temps_formatted}]\n\n")
+        else:
+            cols_formatted = ", ".join([f'"{c}"' for c in dataset.toml_columns])
+            f.write(f"columns = [{cols_formatted}]\n\n")
+            
         for band in bands:
             f.write(f"[bands.{band.name}]\n")
             f.write(f'type = "{band.type}"\n')
 
-            #Write n-levels if exists
             if hasattr(band, 'n_levels'):
                 f.write(f'n_levels = {band.n_levels}\n')
-            # Write all scalars
+
             for param in band.get_parameters():
                 name = param.name.split('_', 1)[1] 
-                
-                # Expressions
                 if param.expr:
                     f.write(f'{name} = {{ expr = "{param.expr}" }}\n')
                 elif not (hasattr(param.value, "size") and param.value.size > 1):
                     vary_str = "true" if param.vary else "false"
                     f.write(f'{name} = {{ value = {param.value:.4f}, vary = {vary_str} }}\n')
-            
             f.write("\n")
             
-            # Write all amplitudes
             for param in band.get_parameters():
                 name = param.name.split('_', 1)[1]
-                
                 if not param.expr and hasattr(param.value, "size") and param.value.size > 1:
                     f.write(f"[bands.{band.name}.{name}]\n")
-                    
                     current_idx = 0
                     for key, size in zip(param.row_keys, param.row_sizes):
                         chunk = param.value[current_idx : current_idx + size]
@@ -559,15 +572,11 @@ def save_results_to_toml(filename: str, dataset: DataSet, bands: list[SpectralBa
                     f.write("\n")
 
 def save_results_to_csv(dataset: DataSet, bands: list[SpectralBand], namespace: dict, param_filename: str = "output_parameters.csv", amp_filename: str = "output_amplitudes.csv") -> None:
-    """
-    Exports the optimized fit results into two separate CSV files.
-    """
     
     # --- Table 1: Scalar Parameters ---
     with open(param_filename, mode='w', newline='') as f_param:
         writer = csv.writer(f_param)
         
-        # Find all unique parameter names across every loaded band
         unique_param_names = []
         for band in bands:
             for param in band.get_parameters():
@@ -579,30 +588,22 @@ def save_results_to_csv(dataset: DataSet, bands: list[SpectralBand], namespace: 
         writer.writerow(headers)
 
         for band in bands:
-            # Initialize a dictionary for this row with empty strings
             row_dict = {name: "" for name in unique_param_names}
-            
-            # Fill in the values for the band
             for param in band.get_parameters():
                 if not isinstance(param, ArrayParameter):
                     base_name = param.name.split('_', 1)[1]
                     row_dict[base_name] = str(param.expr) if param.expr else f"{param.value:.4f}"
             
-            # Place row in the proper order
             row = [band.name, band.type]
             for name in unique_param_names:
                 row.append(row_dict[name])
-                
             writer.writerow(row)    
             
-    # --- Table 2: VTVH Amplitudes ---
+    # --- Table 2: Amplitudes ---
     with open(amp_filename, mode='w', newline='') as f_amp:
         writer = csv.writer(f_amp)
         
-        headers = ["Band_Name"]
-        for temp in dataset.toml_temperatures:
-            for field in dataset.toml_fields:
-                headers.append(f"{temp}K_{field}T")
+        headers = ["Band_Name"] + dataset.conditions
         writer.writerow(headers)
         
         for band in bands:
@@ -611,7 +612,6 @@ def save_results_to_csv(dataset: DataSet, bands: list[SpectralBand], namespace: 
                 if isinstance(param, ArrayParameter):
                     amps = param.get_value(namespace)
                     row.extend([f"{val:.4f}" for val in amps])
-                    
             writer.writerow(row)
 
 def save_sh_results_to_csv(sh_data: list, D: float, E: float, g: float | list[float], out_dir: Path, filename: str = "sh_fit_parameters.csv") -> None:
@@ -648,49 +648,37 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 def save_spectra_to_csv(dataset: DataSet, bands: list[SpectralBand], namespace: dict, filename: str = 'output_spectra.csv') -> None:
-    """Exports raw x-axis, expeirmenta y-values, total fit, and individual band fits"""
     x_axis = dataset.get_x()
-    temps = dataset.toml_temperatures
-    fields = dataset.toml_fields
-    n_cols = len(fields)
+    conditions = dataset.conditions
     band_matrices = [band.evaluate(x_axis, namespace) for band in bands]
 
     with open(filename, mode='w', newline='') as f:
         writer = csv.writer(f)
 
-        # Build Headers
         headers = ["X_Value"]
-        for i, temp in enumerate(temps):
-            for j, field in enumerate(fields):
-                cond = f"{temp}K_{field}T"
-                headers.extend([f"Exp_{cond}", f"Fit_{cond}"])
-                for band in bands:
-                    headers.append(f"{band.name}_{cond}")
+        for cond in conditions:
+            headers.extend([f"Exp_{cond}", f"Fit_{cond}"])
+            for band in bands:
+                headers.append(f"{band.name}_{cond}")
         writer.writerow(headers)
 
-        # Write Data Row by Row
         for row_idx, x_val in enumerate(x_axis):
             row_data = [f"{x_val:.4f}"]
             
-            for i, temp in enumerate(temps):
-                for j, field in enumerate(fields):
-                    matrix_idx = (i * n_cols) + j
+            for idx, cond in enumerate(conditions):
+                exp_val = dataset.y_matrix[row_idx, idx]
+                row_data.append(f"{exp_val:.4f}")
+                
+                total_fit = 0.0
+                band_vals = []
+                for b_idx, band in enumerate(bands):
+                    val = band_matrices[b_idx][idx][row_idx]
+                    total_fit += val
+                    band_vals.append(f"{val:.4f}")
                     
-                    # Experimental Y
-                    exp_val = dataset.y_matrix[row_idx, matrix_idx]
-                    row_data.append(f"{exp_val:.4f}")
-                    
-                    # Total Fit and Individual Bands
-                    total_fit = 0.0
-                    band_vals = []
-                    for b_idx, band in enumerate(bands):
-                        val = band_matrices[b_idx][matrix_idx][row_idx]
-                        total_fit += val
-                        band_vals.append(f"{val:.4f}")
-                        
-                    row_data.append(f"{total_fit:.4f}")
-                    row_data.extend(band_vals)
-                    
+                row_data.append(f"{total_fit:.4f}")
+                row_data.extend(band_vals)
+                
             writer.writerow(row_data)
 
 def get_spin_matrices(S: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -742,7 +730,7 @@ class SpinHamiltonian:
         # Bohr magneton
         self.mu_b = mu_b
         
-        # Build the Zero-Field Splitting Matrix 
+        # ZFS
         S_sq = S * (S + 1)
         identity = np.eye(int(2 * S + 1), dtype=complex)
         
@@ -756,17 +744,17 @@ class SpinHamiltonian:
         """
         Bx, By, Bz = B_vector
         
-        # Build the Zeeman Matrix 
+        # Zeeman
         H_zeeman = self.mu_b * (self.gx * Bx * self.Sx + 
                                 self.gy * By * self.Sy + 
                                 self.gz * Bz * self.Sz)
                                 
         H_total = self.H_zfs + H_zeeman
         
-        # Diagonalize the Hermitian matrix
+        # Diagonalize
         energies, wavefunctions = np.linalg.eigh(H_total)
         
-        # Calculate Spin Expectation Values for each state
+        # Spin Expectation Values for each state
         exp_Sx = np.diag(wavefunctions.conj().T @ self.Sx @ wavefunctions).real
         exp_Sy = np.diag(wavefunctions.conj().T @ self.Sy @ wavefunctions).real
         exp_Sz = np.diag(wavefunctions.conj().T @ self.Sz @ wavefunctions).real
@@ -906,13 +894,11 @@ class MagnetizationFitter:
     def run_fit(self, method: str = 'least_squares') -> Any:
         guess, lb, ub = [], [], []
         
-        # Load bounds for floating Spin-Hamiltonian parameters
         for p in self.floating_sh_params:
             guess.append(p.value)
             lb.append(p.min_val)
             ub.append(p.max_val)
             
-        # Append bounds for the Transition Dipoles
         num_bands = len(self.band_names)
         if self.symmetry_mode == "isotropic":
             guess.extend([0.1] * num_bands)
@@ -1079,6 +1065,9 @@ def run_global_sh_fit(bands_dict: dict, flat_real_temps: list[float], flat_field
 def run_standalone_sh(config: dict) -> None:
     if 'sh' not in config:
         raise ValueError("Cannot run SH solver: Missing [sh] block in TOML.")
+
+    if not dataset.is_vtvh:
+        raise ValueError("Cannot run SH solver: Missing vtvh data.")
         
     mol_config = config['sh']
     temps = config['dataset']['temperatures']
@@ -1194,8 +1183,6 @@ def plot_isofield_summary(bands_dict: dict, flat_temps: list[float], flat_fields
             
         target_temps = temps_arr[idx]
         target_amps = amps_arr[idx]
-        
-        # Convert experimental X-axis to reduced magnetization
         target_x = (mu_b * target_field) / (2 * k_B * target_temps)
         
         p = plt.plot(target_x, target_amps, marker='+', linestyle='none', markersize=6)
@@ -1233,15 +1220,10 @@ def main() -> None:
     if args.sh_only:
         run_standalone_sh(config)
         return
-    
-    dataset = DataSet(
-        filename=config['dataset']['filename'],
-        toml_fields=config['dataset']['fields'],
-        toml_temperatures=config['dataset']['temperatures'],
-        temp_tolerance=config['dataset'].get('temp_tolerance', 0.5)
-    )
 
-    expected_keys = [str(t) for t in dataset.toml_temperatures]
+    dataset = DataSet(config['dataset'])
+
+    expected_keys = [str(t) for t in dataset.toml_temperatures] if dataset.is_vtvh else None
 
     bands = []
     
@@ -1261,7 +1243,6 @@ def main() -> None:
     method = fit_settings.get('method','least_squares')
     fitter = GlobalFitter(dataset, bands, method=method)
     
-    # Run the Optimization
     result = fitter.run()
     
     if result.success:
@@ -1272,7 +1253,8 @@ def main() -> None:
         plot_results(dataset, bands, final_namespace)
         
         if 'sh' in config:
-            run_magnetization_pipeline(dataset, bands, final_namespace, config['sh'])
+            if dataset.is_vtvh:
+                run_magnetization_pipeline(dataset, bands, final_namespace, config['sh'])
 
 if __name__ == "__main__":
     main()
