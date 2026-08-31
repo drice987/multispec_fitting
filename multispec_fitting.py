@@ -485,6 +485,16 @@ class GlobalFitter:
         self.residual(result.x)
         return result
 
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state.pop('aeval', None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        from asteval import Interpreter
+        self.aeval = Interpreter()
+
 def plot_results(dataset: DataSet, bands: list[SpectralBand], namespace: dict) -> None:
     x_axis = dataset.get_x()
     conditions = dataset.conditions
