@@ -1177,6 +1177,8 @@ def plot_sh_curves(ax: plt.Axes, band_name: str, flat_real_temps: list[float], f
     else:
         ax.set_xlabel("Magnetic Field (T)")
     ax.set_ylabel("MCD Amplitude")
+    ax.set_title(band_name)
+    ax.legend(fontsize='small', loc='best')
 
 def plot_isofield_summary(bands_dict: dict, flat_temps: list[float], flat_fields: list[float], all_plot_params: dict, iso_basis: list, smooth_temps: np.ndarray, target_field: float, out_dir: Path) -> None:
     temps_arr = np.array(flat_temps)
