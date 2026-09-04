@@ -5,12 +5,12 @@ Python designed for simultaneous fitting of multiple spectra, particularly usefu
 
 ## Key Features & Physics Implemented
 * **Simultaneous Global Fitting:** Fit multiple spectra simultaneously, tying parameters (band shape) across datasets while allowing amplitudes to float independently.
-* **Gaussian and Pseudo-Voigt Deconvolution:** Robust fitting of user selected Gaussian and Pseudo-Voigt lineshapes.
+* **Gaussian and Pseudo-Voigt Deconvolution:** Fitting of user selected Gaussian and Pseudo-Voigt lineshapes.
 * **Amplitude and Sign Constraints:** Set specific boundaries on parameters, including opposite-signed amplitudes.
-* **Vibronic Progressions:** Built-in support for modeling vibronic coupling using the Huang-Rhys factor and Poisson distributions, automatically calculating vibrational spacing.
+* **Vibronic Progressions:** Built-in support for modeling vibronic coupling using the Huang-Rhys fßactor and Poisson distributions, automatically calculating vibrational spacing.
 * **Custom Parameter Constraints:** Define explicit mathematical relationships between different spectral bands directly in input file (via asteval).
 * **Temperature Dependent Peak Width Broadening** Constrained modeling of peak width broadening across temperature gradients.
-* **Differential Evolution Optimization Algorithm** Option to use least-squared (default) or differential evolution (DE) algorithms.
+* **Optimization Algorithms** Option to use least-squared (default), differential evolution (DE), dual annealing, Nelder-Mead, or L-BFGS-B algorithms, with ability to choose different methods for global fitting and for SH fitting.
 * **Spin Hamiltonian** Includes an integrated spin Hamiltonian solver to extract magnetic parameters (D, E, g-tensor), band transition dipoles (Mxy,yz,xz) and polarizations directly from VTVH amplitudes.
 
 ## Example Single Spectra from VTVH fit

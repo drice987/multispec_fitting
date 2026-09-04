@@ -9,7 +9,7 @@ fields = [10, 7, 5, 3]
 temp_tolerance = 0.5
 
 [fit_settings]
-# Method can be 'least_squares' (default) or 'differential_evolution'. 
+# Method can be 'least_squares' (default), 'dual_annealing', 'L-BFGS-B', 'Nelder-Mead' or 'differential_evolution'. 
 # Users should be mindful of boundary conditions (min/max) for DE to ensure proper convergence.
 method = 'least_suqares'
 
