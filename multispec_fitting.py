@@ -3,7 +3,7 @@ import csv
 import argparse
 from pathlib import Path
 import numpy as np
-from scipy.optimize import differential_evolution, least_squares
+from scipy.optimize import differential_evolution, least_squares, minimize, dual_annealing
 import matplotlib.pyplot as plt
 import re
 from typing import Any
@@ -460,9 +460,17 @@ class GlobalFitter:
     def run(self) -> Any:
         """Executes the fit using least squares or differential evolution."""
         x0 = self._get_initial_guesses()
+        bounds = self._get_bounds()
+
+        if not self.method:
+            self.method = 'least_squares'
+
+        supported_methods = ['least_squares', 'differential_evolution', 'dual_annealing', 'L-BFGS-B', 'Nelder-Mead']
+
+        if self.method not in supported_methods:
+            raise ValueError(f"Invalid optimization method: '{self.method}'. Supported methods are: {', '.join(supported_methods)} ")
 
         if self.method == 'differential_evolution':    
-            bounds = self._get_bounds()
 
             result = differential_evolution(
                 self.cost_function,
@@ -473,6 +481,12 @@ class GlobalFitter:
                 updating = 'deferred',
                 disp = True
             )
+        elif self.method == 'dual_annealing':
+            result = dual_annealing(self.cost_function, bounds=bounds, x0=x0)
+            
+        elif self.method in ['L-BFGS-B', 'Nelder-Mead']:
+            result = minimize(self.cost_function, x0, method=self.method, bounds=bounds)
+
         else:
             result = least_squares(
                 self.residual, 
@@ -922,11 +936,27 @@ class MagnetizationFitter:
             guess.extend([0.1, 0.1, 0.1] * num_bands)
             lb.extend([-50.0, -50.0, -50.0] * num_bands)
             ub.extend([ 50.0,  50.0,  50.0] * num_bands)
+        
+        x0=guess
+        bounds = list(zip(lb, ub))
+                
+        if not method:
+            method = 'least_squares'
 
-        if method == 'differential_evolution':
-            de_bounds = list(zip(lb, ub))
+        supported_methods = ['least_squares', 'differential_evolution', 'dual_annealing', 'L-BFGS-B', 'Nelder-Mead']
+
+        if method not in supported_methods:
+            raise ValueError(f"Invalid optimization method: '{self.method}'. Supported methods are: {', '.join(supported_methods)} ")
+
+        elif method == 'dual_annealing':
+            result = dual_annealing(self.cost_function, bounds=bounds, x0=x0)
+            
+        elif method in ['L-BFGS-B', 'Nelder-Mead']:
+            result = minimize(self.cost_function, x0, method=self.method, bounds=bounds)
+
+        elif method == 'differential_evolution':
             result = differential_evolution(
-                self.cost_function, bounds=de_bounds, x0=guess, polish=True, workers=-1, disp=True
+                self.cost_function, bounds=bounds, x0=x0, polish=True, workers=-1, disp=True
             )
         else:
             result = least_squares(
