@@ -1,8 +1,6 @@
 import numpy as np
-from typing import Any
+from typing import Any, NamedTuple
 from scipy.optimize import differential_evolution, least_squares, minimize, dual_annealing
-from dataclasses import dataclass
-from typing import NamedTuple
 from .constants import mu_b, k_B
 from .parameters import FitParameter
 
@@ -15,7 +13,6 @@ class PolarizationResult(NamedTuple):
     perc_z: float
 
 def build_sh_parameters(mol_config: dict, symmetry_mode: str) -> dict[str, FitParameter]:
-    """Constructs FitParameter dictionary based on point-group symmetry."""
     def_g = {'value': 2.00, 'vary': False}
     def_D = {'value': 5.0, 'vary': False}
     def_E = {'value': 0.0, 'vary': False}
@@ -31,15 +28,51 @@ def build_sh_parameters(mol_config: dict, symmetry_mode: str) -> dict[str, FitPa
         sh_params['gy'] = FitParameter("gy", mol_config.get('gy', def_g))
         sh_params['gz'] = FitParameter("gz", mol_config.get('gz', def_g))
 
-    sh_params['D'] = FitParameter("D", mol_config.get('D', def_D))
-    sh_params['E'] = FitParameter("E", mol_config.get('E', def_E))
+    # Configure D
+    d_cfg = mol_config.get('D', def_D)
+    d_dict = d_cfg.copy() if isinstance(d_cfg, dict) else {'value': float(d_cfg)}
+    
+    d_min = d_dict.get('min', -float('inf'))
+    d_max = d_dict.get('max', float('inf'))
+    d_val = d_dict.get('value', 5.0)
+
+    if d_dict.get('vary', True) and abs(d_val) < 1e-3:
+        if d_min >= 0:
+            val = max(0.1, d_min)
+        elif d_max <= 0:
+            val = min(-0.1, d_max)
+        else:
+            val = -0.1 if (d_val < 0 or np.signbit(d_val)) else 0.1
+        d_dict['value'] = val
+
+    sh_params['D'] = FitParameter("D", d_dict)
+    d_val = sh_params['D'].value
+
+    # Configure E and eta
+    e_cfg = mol_config.get('E', def_E)
+    e_dict = e_cfg.copy() if isinstance(e_cfg, dict) else {'value': float(e_cfg)}
+    
+    if symmetry_mode != "rhombic":
+        e_dict['value'] = 0.0
+        e_dict['vary'] = False
+
+    e_vary = e_dict.get('vary', False) and (symmetry_mode == "rhombic")
+
+    if e_vary:
+        eta_init = abs(e_dict.get('value', 0.0) / d_val) if d_val != 0 else 0.0
+        eta_init = min(max(eta_init, 0.0), 1/3.0)
+        sh_params['eta'] = FitParameter("eta", {'value': eta_init, 'min': 0.0, 'max': 1/3.0, 'vary': True})
+        sh_params['E'] = FitParameter("E", {'value': eta_init * abs(d_val), 'vary': False})
+    else:
+        sh_params['E'] = FitParameter("E", e_dict)
+
     return sh_params
 
 def calculate_polarizations(Mxy: float, Myz: float, Mxz: float, eps: float = 1e-12) -> PolarizationResult:
     """Calculates directional transition dipole projections and polarization percentages."""
-    Px = abs((Mxy * Mxz) / (Myz + eps))
-    Py = abs((Mxy * Myz) / (Mxz + eps))
-    Pz = abs((Myz * Mxz) / (Mxy + eps))
+    Px = abs(Mxy * Mxz) / (abs(Myz) + eps)
+    Py = abs(Mxy * Myz) / (abs(Mxz) + eps)
+    Pz = abs(Myz * Mxz) / (abs(Mxy) + eps)
 
     total_P = Px + Py + Pz
     if total_P > 0:
@@ -51,7 +84,7 @@ def calculate_polarizations(Mxy: float, Myz: float, Mxz: float, eps: float = 1e-
 
     return PolarizationResult(Mxy, Myz, Mxz, perc_x, perc_y, perc_z)
 
-def generate_simulation_grids(engine: SpinHamiltonian, unique_temps: np.ndarray, max_field: float) -> tuple[np.ndarray, dict, np.ndarray, list]:
+def generate_simulation_grids(engine: "SpinHamiltonian", unique_temps: np.ndarray, max_field: float) -> tuple[np.ndarray, dict, np.ndarray, list]:
     """Computes smooth field and temperature basis sets for curve plotting."""
     smooth_fields = np.linspace(0.1, max_field * 1.05, 50)
     mag_basis = {
@@ -69,27 +102,18 @@ class SpinHamiltonian:
     """
     Calculates the energy levels and wavefunctions for a given spin system
     subject to Zero-Field Splitting and an external magnetic field.
-
-    The VTVH MCD magnetization and effective transition dipole extraction 
-    formalism is based on the theoretical framework developed in:
-    Ref: Frank Neese, Edward I. Solomon; MCD C-Term Signs, Saturation Behavior, and Determination 
-    of Band Polarizations in Randomly Oriented Systems with Spin S ≥ 1/2. Applications to S = 1/2 and S = 5/2. 
-    Inorg. Chem. 19 April 1999; 38 (8): 1847–1865.
     """
     def __init__(self, S: float, D: float, E: float, g: float | list[float]) -> None:
         self.S = S
         self.Sx, self.Sy, self.Sz = get_spin_matrices(S)
         
-        # Handle isotropic g-value or anisotropic g-tensor
         if isinstance(g, (int, float)):
             self.gx = self.gy = self.gz = float(g)
         else:
             self.gx, self.gy, self.gz = g
             
-        # Bohr magneton
         self.mu_b = mu_b
         
-        # ZFS
         S_sq = S * (S + 1)
         identity = np.eye(int(2 * S + 1), dtype=complex)
         
@@ -97,23 +121,15 @@ class SpinHamiltonian:
                      E * (self.Sx @ self.Sx - self.Sy @ self.Sy)
 
     def solve(self, B_vector: list[float]) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Applies the magnetic field (Zeeman effect), diagonalizes the matrix,
-        and returns the energies and spin expectation values.
-        """
+        """Applies magnetic field, diagonalizes the matrix, and returns energies and spin expectation values."""
         Bx, By, Bz = B_vector
-        
-        # Zeeman
         H_zeeman = self.mu_b * (self.gx * Bx * self.Sx + 
                                 self.gy * By * self.Sy + 
                                 self.gz * Bz * self.Sz)
                                 
         H_total = self.H_zfs + H_zeeman
-        
-        # Diagonalize
         energies, wavefunctions = np.linalg.eigh(H_total)
         
-        # Spin Expectation Values for each state
         exp_Sx = np.diag(wavefunctions.conj().T @ self.Sx @ wavefunctions).real
         exp_Sy = np.diag(wavefunctions.conj().T @ self.Sy @ wavefunctions).real
         exp_Sz = np.diag(wavefunctions.conj().T @ self.Sz @ wavefunctions).real
@@ -122,55 +138,56 @@ class SpinHamiltonian:
         return energies, exp_S
 
     def get_mcd_components(self, B_mag: float, temp: float, n_theta: int = 30, n_phi: int = 30) -> tuple[float, float, float]:
-        """
-        Calculates the orientation-averaged MCD basis components (xy, yz, zx)
-        decoupled from the transition dipoles.
-        """
-        ave_xy, ave_yz, ave_zx = 0.0, 0.0, 0.0
-        weight_sum = 0.0
-        
+        """Calculates orientation-averaged MCD basis components (xy, yz, zx) vectorized across spherical orientations."""
         thetas = np.linspace(0, np.pi, n_theta)
         phis = np.linspace(0, 2 * np.pi, n_phi, endpoint=False)
-        kT = k_B * temp  
-        
-        for theta in thetas:
-            sin_t = np.sin(theta)
-            cos_t = np.cos(theta)
-            weight = sin_t 
-            
-            for phi in phis:
-                sin_p = np.sin(phi)
-                cos_p = np.cos(phi)
-                
-                ux = sin_t * cos_p
-                uy = sin_t * sin_p
-                uz = cos_t
-                
-                B_vector = [B_mag * ux, B_mag * uy, B_mag * uz]
-                energies, exp_S = self.solve(B_vector)
-                
-                exp_terms = np.exp(-(energies - energies[0]) / kT)
-                populations = exp_terms / np.sum(exp_terms)
-                
-                comp_xy, comp_yz, comp_zx = 0.0, 0.0, 0.0
-                for i in range(len(energies)):
-                    Sx, Sy, Sz = exp_S[i]
-                    comp_xy += populations[i] * (uz * Sz)
-                    comp_yz += populations[i] * (ux * Sx)
-                    comp_zx += populations[i] * (uy * Sy)
-                                                          
-                ave_xy += comp_xy * weight
-                ave_yz += comp_yz * weight
-                ave_zx += comp_zx * weight
-                weight_sum += weight
-                
-        return ave_xy / weight_sum, ave_yz / weight_sum, ave_zx / weight_sum
+        kT = max(k_B * temp, 1e-9)
+
+        theta_grid, phi_grid = np.meshgrid(thetas, phis, indexing='ij')
+        sin_t = np.sin(theta_grid).ravel()
+        cos_t = np.cos(theta_grid).ravel()
+        sin_p = np.sin(phi_grid).ravel()
+        cos_p = np.cos(phi_grid).ravel()
+
+        ux = sin_t * cos_p
+        uy = sin_t * sin_p
+        uz = cos_t
+        weights = sin_t  
+
+        H_zeeman = (self.mu_b * B_mag) * (
+            self.gx * ux[:, None, None] * self.Sx
+            + self.gy * uy[:, None, None] * self.Sy
+            + self.gz * uz[:, None, None] * self.Sz
+        )
+        H_total = self.H_zfs[None, :, :] + H_zeeman
+
+        energies, wavefunctions = np.linalg.eigh(H_total)
+
+        exp_Sx = np.diagonal(wavefunctions.conj().swapaxes(-1, -2) @ self.Sx @ wavefunctions, axis1=-2, axis2=-1).real
+        exp_Sy = np.diagonal(wavefunctions.conj().swapaxes(-1, -2) @ self.Sy @ wavefunctions, axis1=-2, axis2=-1).real
+        exp_Sz = np.diagonal(wavefunctions.conj().swapaxes(-1, -2) @ self.Sz @ wavefunctions, axis1=-2, axis2=-1).real
+
+        delta_E = energies - energies[:, [0]]
+        exp_terms = np.exp(-delta_E / kT)
+        populations = exp_terms / np.sum(exp_terms, axis=1, keepdims=True)
+
+        sum_Sx = np.sum(populations * exp_Sx, axis=1)  
+        sum_Sy = np.sum(populations * exp_Sy, axis=1)
+        sum_Sz = np.sum(populations * exp_Sz, axis=1)
+
+        comp_xy = uz * sum_Sz
+        comp_yz = ux * sum_Sx
+        comp_zx = uy * sum_Sy
+
+        total_weight = np.sum(weights)
+        ave_xy = float(np.sum(comp_xy * weights) / total_weight)
+        ave_yz = float(np.sum(comp_yz * weights) / total_weight)
+        ave_zx = float(np.sum(comp_zx * weights) / total_weight)
+
+        return ave_xy, ave_yz, ave_zx
 
 class MagnetizationFitter:
-    """
-    Fits experimental VTVH amplitudes to extract Zero-Field Splitting (D, E),
-    an isotropic g-value, and effective transition dipole moments.
-    """
+    """Fits experimental VTVH amplitudes to extract Zero-Field Splitting, g-values, and transition dipoles."""
     def __init__(self, S: float, temps: list[float], fields: list[float], exp_norm_dict: dict, sh_params: dict, symmetry_mode: str = "isotropic") -> None:
         self.S = S
         self.temps = temps
@@ -205,10 +222,13 @@ class MagnetizationFitter:
             gz = self.sh_params['gz'].value
             
         D = self.sh_params['D'].value
-        E = self.sh_params['E'].value
-            
-        if D != 0 and abs(E / D) > 1/3:
-            return np.ones(len(self.temps) * len(self.band_names)) * 1e6
+        
+        if 'eta' in self.sh_params and self.sh_params['eta'].vary:
+            eta = np.clip(self.sh_params['eta'].value, 0.0, 1/3.0)
+            E = eta * abs(D)
+            self.sh_params['E'].value = E
+        else:
+            E = self.sh_params['E'].value
             
         engine = SpinHamiltonian(self.S, D, E, [gx, gy, gz])
         
@@ -219,7 +239,6 @@ class MagnetizationFitter:
                 basis_matrix[(t, b)] = engine.get_mcd_components(b, t, n_theta=15, n_phi=15)
         
         all_residuals = []
-        
         band_params = params[self.num_floating_sh:]
         
         for i, name in enumerate(self.band_names):
@@ -252,11 +271,37 @@ class MagnetizationFitter:
 
     def run_fit(self, method: str = 'least_squares') -> Any:
         guess, lb, ub = [], [], []
+        finite_only = method in ('differential_evolution', 'dual_annealing')
         
         for p in self.floating_sh_params:
+            if p.name == 'D' and abs(p.value) < 1e-4:
+                if p.min_val >= 0:
+                    val = max(0.1, p.min_val)
+                elif p.max_val <= 0:
+                    val = min(-0.1, p.max_val)
+                else:
+                    val = -0.1 if (p.value < 0 or np.signbit(p.value)) else 0.1
+                p.set_value(val)
+
             guess.append(p.value)
-            lb.append(p.min_val)
-            ub.append(p.max_val)
+            p_min, p_max = p.min_val, p.max_val
+            
+            if finite_only:
+                if 'g' in p.name:
+                    c_min = 1.0 if np.isinf(p_min) else p_min
+                    c_max = 3.0 if np.isinf(p_max) else p_max
+                elif p.name == 'D':
+                    margin = max(abs(p.value) * 5.0, 50.0)
+                    c_min = p.value - margin if np.isinf(p_min) else p_min
+                    c_max = p.value + margin if np.isinf(p_max) else p_max
+                else:
+                    c_min = p_min
+                    c_max = p_max
+                lb.append(c_min)
+                ub.append(c_max)
+            else:
+                lb.append(p_min)
+                ub.append(p_max)
             
         num_bands = len(self.band_names)
         if self.symmetry_mode == "isotropic":
@@ -272,7 +317,7 @@ class MagnetizationFitter:
             lb.extend([-50.0, -50.0, -50.0] * num_bands)
             ub.extend([ 50.0,  50.0,  50.0] * num_bands)
         
-        x0=guess
+        x0 = guess
         bounds = list(zip(lb, ub))
                 
         if not method:
@@ -281,46 +326,35 @@ class MagnetizationFitter:
         supported_methods = ['least_squares', 'differential_evolution', 'dual_annealing', 'L-BFGS-B', 'Nelder-Mead']
 
         if method not in supported_methods:
-            raise ValueError(f"Invalid optimization method: '{method}'. Supported methods are: {', '.join(supported_methods)} ")
+            raise ValueError(f"Invalid optimization method: '{method}'. Supported methods are: {', '.join(supported_methods)}")
 
-        elif method == 'dual_annealing':
+        if method == 'dual_annealing':
             result = dual_annealing(self.cost_function, bounds=bounds, x0=x0)
-            
         elif method in ['L-BFGS-B', 'Nelder-Mead']:
             result = minimize(self.cost_function, x0, method=method, bounds=bounds)
-
         elif method == 'differential_evolution':
             result = differential_evolution(
-                self.cost_function, bounds=bounds, x0=x0, polish=True, workers=-1, disp=True
+                self.cost_function, bounds=bounds, x0=x0, polish=True, workers=-1, updating='deferred', disp=True
             )
         else:
             result = least_squares(
                 self.residual, x0=guess, bounds=(lb, ub), method='trf', xtol=1e-4, ftol=1e-4
             )
             
+        self.residual(result.x)
         return result
 
 def get_spin_matrices(S: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Generates the Sx, Sy, and Sz spin operator matrices for a given spin S.
-    Returns complex numpy arrays of shape (2S+1, 2S+1).
-    """
-    dim = int(2 * S + 1)
-    Sz = np.zeros((dim, dim), dtype=complex)
-    Sp = np.zeros((dim, dim), dtype=complex) # S_+ 
-    Sm = np.zeros((dim, dim), dtype=complex) # S_- 
+    """Generates the Sx, Sy, and Sz spin operator matrices for a given spin S."""
+    m = np.arange(S, -S - 1, -1, dtype=float)
+    m_raising = m[1:]
+    s_plus_diag = np.sqrt(S * (S + 1) - m_raising * (m_raising + 1))
     
-    for i in range(dim):
-        m = S - i
-        Sz[i, i] = m
-        
-        if i > 0:
-            Sp[i-1, i] = np.sqrt(S * (S + 1) - m * (m + 1))
-            
-        if i < dim - 1:
-            Sm[i+1, i] = np.sqrt(S * (S + 1) - m * (m - 1))
-            
+    Sp = np.diag(s_plus_diag, k=1).astype(complex)
+    Sm = Sp.conj().T
+    
     Sx = 0.5 * (Sp + Sm)
     Sy = -0.5j * (Sp - Sm)
+    Sz = np.diag(m).astype(complex)
     
     return Sx, Sy, Sz
