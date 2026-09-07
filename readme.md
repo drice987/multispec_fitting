@@ -3,7 +3,7 @@
 ## Overview
 Analyzing spectroscopic series across changing physical conditions (temperature, magnetic field, pH, time) often suffers from over-parameterization when fitting spectra independently. Multispec performs simultaneous global fitting across arbitrary 1D or 2D condition series. Peak positions, widths, and vibronic progressions can be coupled or constrained across conditions while allowing intensities and thermal parameters to vary according to physical models.
 
-For VTVH MCD data, the software includes a coupled Spin Hamiltonian solver based on the orientation-averaging formalism to extract zero-field splitting ($D, E$), $g$-tensors, and effective transition dipole products ($M_{xy}, M_{yz}, M_{xz}$) and percentage polarizations (%x,%y,%z).
+For VTVH MCD data, the software includes a coupled Spin Hamiltonian solver based on the orientation-averaging formalism to extract zero-field splitting ($D, E$), $g$-tensors, and effective transition dipole products ($M_{xy}, M_{yz}, M_{xz}$) and percentage polarizations ($\%\,x, \%\,y, \%\,z$).
 
 ## Key Features
 
@@ -13,12 +13,12 @@ For VTVH MCD data, the software includes a coupled Spin Hamiltonian solver based
   * **Pseudo-Voigt:** Linear combination of Gaussian and Lorentzian profiles with floating mixing parameter ($\eta$).
   * **Vibronic Progression:** Franck–Condon progressions modeled with Huang–Rhys factors ($S$) and Poisson distributions.
   * **Thermal Broadening:** Temperature-dependent linewidth broadening modeled via $w(T) = w_0 + A / \tanh\left(\frac{\hbar\omega}{2 k_B T}\right)$.
-* **Mathematical Parameter Tying:** Define relational constraints directly in the input TOML file using mathematical expressions via `asteval` (e.g., opposite-signed pseudo-$A$ pairs like `amplitudes = { expr = "-Band1.amplitudes" }`).
+* **Mathematical Parameter Tying:** Define relational constraints directly in the input TOML file using mathematical expressions via `asteval` (e.g., opposite-signed pseudo-A pairs like `amplitudes = { expr = "-Band1.amplitudes" }`).
 * **Condition Filtering:** Rapidly isolate and fit individual magnetic fields or temperatures on the fly (`--fields`, `--temps`) without modifying initial guesses in your configuration file.
 * **Integrated Spin Hamiltonian Solver:**
   * Supports isotropic ($g$), axial ($g_x = g_y, g_z$), and rhombic ($g_x, g_y, g_z$) spin symmetries.
   * Simulates orientation-averaged VTVH magnetization saturation curves.
-  * Decomposes band polarizations into effective transition dipole products ($M_{xy}, M_{yz}, M_{xz}$) and percentage polarizations (%x,%y,%z).
+  * Decomposes band polarizations into effective transition dipole products ($M_{xy}, M_{yz}, M_{xz}$) and percentage polarizations ($\%\,x, \%\,y, \%\,z$).
 * **Multiple Numerical Optimizers:** Gradient-based Levenberg–Marquardt / TRF (`least_squares`) with physical boundary enforcement, alongside global stochastic methods (`differential_evolution`, `dual_annealing`, `Nelder-Mead`, `L-BFGS-B`).
 * **Non-VTVH Compatibility:** Supports arbitrary multi-column datasets (e.g., pH titrations, kinetic runs, electrochemical series).
 
@@ -149,7 +149,7 @@ Each successful run produces organized parameter tables, simulated coordinates, 
 | :--- | :--- |
 | `magnetization_fits.png` | Multi-panel VTVH saturation curves per band with experimental data vs. Spin Hamiltonian simulations. |
 | `isofield_{field}T.png` | Temperature-dependent intensity summary across all bands at a selected magnetic field. |
-| `sh_fit_parameters.csv` | Fitted spin parameters ($D, E$, $g$-tensor), effective transition dipole products ($M_{xy}, M_{yz}, M_{xz}$), and percentage polarizations (%x, %y, %z). |
+| `sh_fit_parameters.csv` | Fitted spin parameters ($D, E$, $g$-tensor), effective transition dipole products ($M_{xy}, M_{yz}, M_{xz}$), and percentage polarizations ($\%\,x, \%\,y, \%\,z$). |
 | `sh_simulated_curves.csv` | Long-format coordinates of all experimental and simulated VTVH curves. |
 
 ## Interactive / Jupyter Notebook Usage
