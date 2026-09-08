@@ -34,12 +34,12 @@ Multispec requires **Python 3.11+** (for native `tomllib` support).
 
 ```bash
 # Clone repository
-git clone git@github.com:drice987/multispec_fitting.git
+git clone https://github.com/drice987/multispec_fitting.git
 cd multispec_fitting
 
 # Create and activate a virtual environment (optional but recommended)
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+source .venv/bin/activate # On Windows: .venv\Scripts\activate
 
 # Install dependencies
 pip install -e .
