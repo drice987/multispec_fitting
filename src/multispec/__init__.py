@@ -5,10 +5,10 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"
 
+from .bands import GaussianBand, PseudoVoigtBand, VibronicBand
 from .data import DataSet
+from .magnetization import MagnetizationFitter, SpinHamiltonian
 from .spectral_fit import GlobalFitter
-from .magnetization import SpinHamiltonian, MagnetizationFitter
-from .bands import GaussianBand, VibronicBand, PseudoVoigtBand
 
 __all__ = [
     "DataSet",

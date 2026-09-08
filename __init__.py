@@ -1,7 +1,7 @@
 from .core import AutomatedDetectorPipeline, DataFileHandler
 from .io import read_detector_file, valid_extensions
-from .stats import WelfordRollingStats, EMAStats
 from .rendering import DashboardRenderer
+from .stats import EMAStats, WelfordRollingStats
 
 __all__ = [
     "AutomatedDetectorPipeline",
