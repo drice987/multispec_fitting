@@ -56,10 +56,10 @@ Execution is driven from the command line using a single `.toml` file that speci
 ### 1. Run Full Global Fitting & Spin Hamiltonian Analysis
 
 ```bash
-python -m multispec.main example/N2Q_SH_with_global-fit.toml
-
-# Or now with pip install -e . this can be ran as
 multispec example/N2Q_SH_with_global-fit.toml
+
+# Alternatively, invoke via Python module:
+python -m multispec example/N2Q_SH_with_global-fit.toml
 ```
 
 ### 2. Fit a Specific Subset of Conditions
