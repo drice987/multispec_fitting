@@ -2,7 +2,6 @@ import argparse
 import tomllib
 from pathlib import Path
 import numpy as np
-
 from .data import DataSet
 from .bands import GaussianBand, VibronicBand, PseudoVoigtBand, SpectralBand
 from .spectral_fit import GlobalFitter
@@ -24,6 +23,7 @@ from .magnetization import (
     calculate_polarizations, 
     generate_simulation_grids
 )
+from . import __version__
 
 def load_config(filepath: str | Path) -> dict:
 
@@ -43,6 +43,12 @@ def parse_args() -> argparse.Namespace:
     """Parses command line arguments to find input"""
     parser = argparse.ArgumentParser(description="Run the global fitting routine with parameters from TOML input file.")
 
+    parser.add_argument(
+        "-v", "--version",
+        action="version",
+        version=f"%(prog)s {__version__}"
+    )
+    
     parser.add_argument(
         "config_file",
         type = str,

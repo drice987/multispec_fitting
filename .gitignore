@@ -9,6 +9,8 @@ env/
 build/
 dist/
 *.egg-info/
+*egg
+.eggs/
 
 # Operating system & Editor files
 .DS_Store

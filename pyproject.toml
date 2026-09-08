@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multispec"
+version = "2.0.1"
+description = "Simultaneous global spectral fitting and Spin Hamiltonian analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+    "scipy",
+    "matplotlib",
+    "asteval",
+]
+
+[project.scripts]
+multispec = "multispec.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

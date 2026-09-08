@@ -1,4 +1,9 @@
-__version__ = "2.0.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("multispec")
+except PackageNotFoundError:
+    __version__ = "unknown"
 
 from .data import DataSet
 from .spectral_fit import GlobalFitter

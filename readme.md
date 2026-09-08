@@ -42,7 +42,7 @@ python3 -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
-pip install -r requirements.txt
+pip install -e .
 ```
 ### Dependencies
 * `numpy`
@@ -57,6 +57,9 @@ Execution is driven from the command line using a single `.toml` file that speci
 
 ```bash
 python -m multispec.main example/N2Q_SH_with_global-fit.toml
+
+# Or now with pip install -e . this can be ran as
+multispec example/N2Q_SH_with_global-fit.toml
 ```
 
 ### 2. Fit a Specific Subset of Conditions
@@ -65,13 +68,13 @@ Quickly test initial guesses or refine band positions against high-signal spectr
 
 ```bash
 # Fit only the 10.0 T and 7.0 T spectra across all temperatures
-python -m multispec.main example/N2Q_SH_with_global-fit.toml --fields 10.0 7.0
+multispec example/N2Q_SH_with_global-fit.toml --fields 10.0 7.0
 
 # Fit only the 2.5 K isotherm across all fields
-python -m multispec.main example/N2Q_SH_with_global-fit.toml --temps 2.5
+multispec example/N2Q_SH_with_global-fit.toml --temps 2.5
 
 # Fit a single condition (e.g., 2.5 K at 10.0 T)
-python -m multispec.main example/N2Q_SH_with_global-fit.toml --temps 2.5 --fields 10.0
+multispec example/N2Q_SH_with_global-fit.toml --temps 2.5 --fields 10.0
 ```
 
 ### 3. Run Standalone Spin Hamiltonian Solver
@@ -79,7 +82,7 @@ python -m multispec.main example/N2Q_SH_with_global-fit.toml --temps 2.5 --field
 Skip the spectral deconvolution step and fit the Spin Hamiltonian directly using the amplitude arrays already saved in the TOML configuration:
 
 ```bash
-python -m multispec.main example/N2Q_SH_with_global-fit.toml --sh-only
+multispec example/N2Q_SH_with_global-fit.toml --sh-only
 ```
 
 ## Configuration Overview (`.toml`)
