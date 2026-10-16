@@ -1,6 +1,6 @@
 # multispec/parameters.py
 from typing import Any
-
+import re
 import numpy as np
 from asteval import Interpreter
 
@@ -26,7 +26,7 @@ class FitParameter:
             try:
                 if evaluator is None:
                     evaluator = Interpreter()
-                safe_expr = self.expr.replace(".", "_")
+                safe_expr = re.sub(r"([A-Za-z_]\w*)\.([A-Za-z_]\w*)", r"\1_\2", self.expr)
                 for key, val in namespace.items():
                     evaluator.symtable[key] = val
                 return evaluator(safe_expr)
@@ -136,7 +136,7 @@ class ArrayParameter:
                     from asteval import Interpreter
 
                     evaluator = Interpreter()
-                safe_expr = self.expr.replace(".", "_")
+                safe_expr = re.sub(r"([A-Za-z_]\w*)\.([A-Za-z_]\w*)", r"\1_\2", self.expr)
                 for key, val in namespace.items():
                     evaluator.symtable[key] = val
                 return evaluator(safe_expr)
