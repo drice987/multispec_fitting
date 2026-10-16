@@ -1,6 +1,7 @@
 # multispec/parameters.py
-from typing import Any
 import re
+from typing import Any
+
 import numpy as np
 from asteval import Interpreter
 

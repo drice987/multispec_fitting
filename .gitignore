@@ -11,6 +11,10 @@ dist/
 *.egg-info/
 *egg
 .eggs/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
 
 # Operating system & Editor files
 .DS_Store

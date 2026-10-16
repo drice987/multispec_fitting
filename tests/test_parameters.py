@@ -40,6 +40,7 @@ def test_fit_parameter_missing_namespace_raises():
     with pytest.raises(RuntimeError, match="Failed to evaluate expression"):
         p.get_value(namespace=None)
 
+
 def test_array_parameter_key_matching_and_field_slicing():
     raw_cfg = {
         "2": [1.0, 2.0, 3.0],
@@ -74,6 +75,7 @@ def test_array_parameter_unfiltered_keys_and_scalar_coercion():
 
     ap.set_value(np.array([-1.0, 1.5, 5.0]))
     np.testing.assert_allclose(ap.value, [0.0, 1.5, 3.0])
+
 
 def test_array_parameter_missing_key_raises():
     with pytest.raises(KeyError, match="Missing amplitude array for temperature '20.0'"):
