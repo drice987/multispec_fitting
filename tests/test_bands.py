@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from multispec.bands import GaussianBand, PseudoVoigtBand, SpectralBand
+from multispec.bands import GaussianBand, PseudoVoigtBand, SpectralBand, VibronicBand
 from multispec.constants import k_B
 
 
@@ -61,6 +61,7 @@ def test_gaussian_band_thermal_broadening(base_band_cfg):
     assert np.isclose(y[0, 0], 1.0)
     assert np.isclose(y[1, 1], 2.0)
 
+
 def test_pseudovoigt_default_lorentz_fraction(base_band_cfg):
     band = PseudoVoigtBand("pv", base_band_cfg)
     params = band.get_parameters()
@@ -86,3 +87,37 @@ def test_pseudovoigt_lineshape_mixing(base_band_cfg, eta, expected_wing):
     y = band.evaluate(x, namespace={"__real_temperatures__": [2.0, 2.0]})
 
     np.testing.assert_allclose(y[0], [2.0, 1.0, expected_wing])
+
+
+def test_vibronic_band_zero_coupling_matches_gaussian(base_band_cfg):
+    vib_cfg = {
+        **base_band_cfg,
+        "vib_spacing": {"value": 800.0, "vary": False},
+        "huang_rhys": {"value": 0.0, "vary": False},
+    }
+    vib = VibronicBand("vib", vib_cfg)
+    gauss = GaussianBand("g", base_band_cfg)
+
+    assert vib.n_levels == 10
+    assert len(vib.get_parameters()) == 5
+
+    x = np.linspace(19000.0, 24000.0, 101)
+    ns = {"__real_temperatures__": [2.0, 2.0]}
+    np.testing.assert_allclose(vib.evaluate(x, ns), gauss.evaluate(x, ns))
+
+
+def test_vibronic_band_franck_condon_progression(base_band_cfg):
+    vib_cfg = {
+        **base_band_cfg,
+        "width": {"value": 80.0, "vary": False},
+        "vib_spacing": {"value": 1000.0, "vary": False},
+        "huang_rhys": {"value": 1.0, "vary": False},
+        "n_levels": 4,
+    }
+    vib = VibronicBand("vib", vib_cfg)
+
+    x = np.array([20000.0, 21000.0, 22000.0])
+    y = vib.evaluate(x, namespace={"__real_temperatures__": [2.0, 2.0]})
+
+    expected_row0 = np.exp(-1.0) * np.array([2.0, 2.0, 1.0])
+    np.testing.assert_allclose(y[0], expected_row0, rtol=1e-5)
