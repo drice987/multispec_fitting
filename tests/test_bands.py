@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from multispec.bands import GaussianBand, SpectralBand
+from multispec.bands import GaussianBand, PseudoVoigtBand, SpectralBand
 from multispec.constants import k_B
 
 
@@ -60,3 +60,29 @@ def test_gaussian_band_thermal_broadening(base_band_cfg):
 
     assert np.isclose(y[0, 0], 1.0)
     assert np.isclose(y[1, 1], 2.0)
+
+def test_pseudovoigt_default_lorentz_fraction(base_band_cfg):
+    band = PseudoVoigtBand("pv", base_band_cfg)
+    params = band.get_parameters()
+
+    assert len(params) == 4
+    assert band.lorentz_frac.value == 0.5
+    assert (band.lorentz_frac.min_val, band.lorentz_frac.max_val) == (0.0, 1.0)
+
+
+@pytest.mark.parametrize(
+    "eta, expected_wing",
+    [
+        (0.0, 0.125),
+        (0.5, 0.2625),
+        (1.0, 0.4),
+    ],
+)
+def test_pseudovoigt_lineshape_mixing(base_band_cfg, eta, expected_wing):
+    cfg = {**base_band_cfg, "lorentz_frac": {"value": eta, "vary": False}}
+    band = PseudoVoigtBand("pv", cfg)
+
+    x = np.array([20000.0, 20200.0, 20400.0])
+    y = band.evaluate(x, namespace={"__real_temperatures__": [2.0, 2.0]})
+
+    np.testing.assert_allclose(y[0], [2.0, 1.0, expected_wing])
