@@ -74,3 +74,24 @@ def test_array_parameter_unfiltered_keys_and_scalar_coercion():
 
     ap.set_value(np.array([-1.0, 1.5, 5.0]))
     np.testing.assert_allclose(ap.value, [0.0, 1.5, 3.0])
+
+def test_array_parameter_missing_key_raises():
+    with pytest.raises(KeyError, match="Missing amplitude array for temperature '20.0'"):
+        ArrayParameter("b1_amps", {"2.0": [1.0, 2.0]}, expected_keys=["2.0", "20.0"])
+
+
+def test_array_parameter_empty_raises():
+    with pytest.raises(ValueError, match="No amplitude data was loaded"):
+        ArrayParameter("empty_amps", {"min": 0.0, "max": 1.0})
+
+
+def test_array_parameter_expression_mode():
+    ap = ArrayParameter("b2_amps", {"expr": "b1.amplitudes * 0.5"})
+    assert ap.vary is False
+    assert ap.value is None
+
+    ns = {"b1_amplitudes": np.array([2.0, 4.0, 6.0])}
+    np.testing.assert_allclose(ap.get_value(ns), [1.0, 2.0, 3.0])
+
+    with pytest.raises(ValueError, match="Cannot manually set"):
+        ap.set_value(np.array([1.0, 1.0, 1.0]))
