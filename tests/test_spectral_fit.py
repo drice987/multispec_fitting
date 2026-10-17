@@ -1,4 +1,5 @@
 import pickle
+
 import numpy as np
 import pytest
 
@@ -106,3 +107,58 @@ def test_global_fitter_least_squares_recovers_parameters(synthetic_dataset):
     assert np.isclose(band.center.value, 15000.0, atol=1e-2)
     assert np.isclose(band.width.value, 300.0, atol=1e-2)
     np.testing.assert_allclose(band.amplitudes.value, [2.0, 5.0], atol=1e-2)
+
+
+def test_global_fitter_coupled_band_expressions(synthetic_dataset):
+    b1 = GaussianBand(
+        "Band1",
+        {
+            "type": "Gaussian",
+            "center": {"value": 14950.0, "vary": True},
+            "width": {"value": 300.0, "vary": False},
+            "amplitudes": {"2.0": [0.8, 2.0]},
+        },
+        expected_keys=["2.0"],
+    )
+    b2 = GaussianBand(
+        "Band2",
+        {
+            "type": "Gaussian",
+            "center": {"expr": "Band1.center"},
+            "width": {"expr": "Band1.width"},
+            "amplitudes": {"expr": "Band1.amplitudes * 1.5"},
+        },
+        expected_keys=["2.0"],
+    )
+
+    fitter = GlobalFitter(synthetic_dataset, [b1, b2], method="least_squares")
+    res = fitter.run()
+
+    assert res.success
+    assert np.isclose(b1.center.value, 15000.0, atol=1e-2)
+    np.testing.assert_allclose(b1.amplitudes.value, [0.8, 2.0], atol=1e-2)
+
+    ns = fitter._build_namespace()
+    np.testing.assert_allclose(b2.amplitudes.get_value(ns), [1.2, 3.0], atol=1e-2)
+
+
+def test_global_fitter_lbfgsb_and_invalid_method(synthetic_dataset):
+    band = GaussianBand(
+        "Band1",
+        {
+            "type": "Gaussian",
+            "center": {"value": 15000.0, "vary": False},
+            "width": {"value": 300.0, "vary": False},
+            "amplitudes": {"2.0": [1.8, 4.7]},
+        },
+        expected_keys=["2.0"],
+    )
+    fitter = GlobalFitter(synthetic_dataset, [band], method="L-BFGS-B")
+    res = fitter.run()
+
+    assert res.success
+    np.testing.assert_allclose(band.amplitudes.value, [2.0, 5.0], atol=1e-2)
+
+    bad_fitter = GlobalFitter(synthetic_dataset, [band], method="unsupported_solver")
+    with pytest.raises(ValueError, match="Invalid optimization method"):
+        bad_fitter.run()
