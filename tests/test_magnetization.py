@@ -3,6 +3,7 @@ import pytest
 
 from multispec.constants import mu_b
 from multispec.magnetization import (
+    MagnetizationFitter,
     SpinHamiltonian,
     build_sh_parameters,
     calculate_polarizations,
@@ -118,3 +119,75 @@ def test_build_sh_parameters_symmetries_and_eta_clamping():
 def test_build_sh_parameters_zero_d_nudging(d_cfg, expected_d):
     params = build_sh_parameters({"D": d_cfg}, "isotropic")
     assert params["D"].value == expected_d
+
+
+def test_magnetization_fitter_normalization_and_zero_guard():
+    sh_params = build_sh_parameters({}, "isotropic")
+    fitter = MagnetizationFitter(
+        S=0.5,
+        temps=[2.0, 5.0],
+        fields=[1.0, 7.0],
+        exp_norm_dict={"Band1": [-2.0, 4.0], "DeadBand": [0.0, 0.0]},
+        sh_params=sh_params,
+    )
+
+    assert fitter.scale_factors["Band1"] == 4.0
+    assert fitter.scale_factors["DeadBand"] == 1.0
+    np.testing.assert_allclose(fitter.exp_norm_dict["Band1"], [-0.5, 1.0])
+
+
+def test_magnetization_fitter_rhombic_residual_updates_e_from_eta():
+    temps = [2.0, 5.0]
+    fields = [1.0, 7.0]
+    sh_params = build_sh_parameters(
+        {
+            "D": {"value": 6.0, "vary": True},
+            "E": {"value": 0.6, "vary": True},
+        },
+        symmetry_mode="rhombic",
+    )
+    fitter = MagnetizationFitter(
+        S=1.0,
+        temps=temps,
+        fields=fields,
+        exp_norm_dict={"Band1": [1.0, 2.0]},
+        sh_params=sh_params,
+        symmetry_mode="rhombic",
+    )
+
+    assert fitter.num_floating_sh == 2
+    res = fitter.residual([6.0, 0.25, 0.5, 0.5, 0.5])
+    assert res.shape == (2,)
+    assert np.isclose(fitter.sh_params["E"].value, 1.5)
+
+
+def test_magnetization_fitter_isotropic_recovery_and_method_validation():
+    temps = [2.0, 2.0, 5.0, 5.0]
+    fields = [1.0, 7.0, 1.0, 7.0]
+
+    engine = SpinHamiltonian(S=0.5, D=0.0, E=0.0, g=2.0)
+    synth_amps = [
+        3.0 * sum(engine.get_mcd_components(b, t, n_theta=15, n_phi=15))
+        for t, b in zip(temps, fields)
+    ]
+
+    sh_params = build_sh_parameters(
+        {"g": {"value": 2.0, "vary": False}, "D": {"value": 0.0, "vary": False}},
+        symmetry_mode="isotropic",
+    )
+    fitter = MagnetizationFitter(
+        S=0.5,
+        temps=temps,
+        fields=fields,
+        exp_norm_dict={"Band1": np.array(synth_amps)},
+        sh_params=sh_params,
+        symmetry_mode="isotropic",
+    )
+
+    result = fitter.run_fit(method="least_squares")
+    assert result.success
+    assert fitter.cost_function(result.x) < 1e-6
+    assert np.isclose(result.x[0] * fitter.scale_factors["Band1"], 3.0, rtol=1e-3)
+
+    with pytest.raises(ValueError, match="Invalid optimization method"):
+        fitter.run_fit(method="invalid_solver")
