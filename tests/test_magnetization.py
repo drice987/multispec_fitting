@@ -4,6 +4,8 @@ import pytest
 from multispec.constants import mu_b
 from multispec.magnetization import (
     SpinHamiltonian,
+    build_sh_parameters,
+    calculate_polarizations,
     generate_simulation_grids,
     get_spin_matrices,
 )
@@ -70,3 +72,49 @@ def test_generate_simulation_grids_shapes():
     assert len(mag_basis[2.0]) == 50
     assert len(smooth_t) == 100
     assert len(iso_basis) == 100
+
+
+def test_calculate_polarizations_anisotropic_and_zero():
+    res = calculate_polarizations(Mxy=2.0, Myz=6.0, Mxz=3.0)
+    expected = np.array([1.0, 4.0, 9.0]) / 14.0 * 100.0
+    np.testing.assert_allclose([res.perc_x, res.perc_y, res.perc_z], expected, rtol=1e-9)
+
+    zero_res = calculate_polarizations(0.0, 0.0, 0.0)
+    assert (zero_res.perc_x, zero_res.perc_y, zero_res.perc_z) == (0.0, 0.0, 0.0)
+
+
+def test_build_sh_parameters_symmetries_and_eta_clamping():
+    iso = build_sh_parameters({"D": 4.0, "E": 1.0}, "isotropic")
+    assert set(iso.keys()) == {"g", "D", "E"}
+    assert iso["D"].value == 4.0
+    assert iso["E"].value == 0.0
+    assert iso["E"].vary is False
+
+    axial = build_sh_parameters({"E": {"value": 1.0, "vary": True}}, "axial")
+    assert set(axial.keys()) == {"gx", "gz", "D", "E"}
+    assert axial["E"].value == 0.0
+    assert axial["E"].vary is False
+
+    rhombic = build_sh_parameters(
+        {"D": {"value": 3.0, "vary": True}, "E": {"value": 2.0, "vary": True}},
+        "rhombic",
+    )
+    assert set(rhombic.keys()) == {"gx", "gy", "gz", "D", "eta", "E"}
+    assert np.isclose(rhombic["eta"].value, 1.0 / 3.0)
+    assert np.isclose(rhombic["E"].value, 1.0)
+    assert rhombic["eta"].vary is True
+    assert rhombic["E"].vary is False
+
+
+@pytest.mark.parametrize(
+    "d_cfg, expected_d",
+    [
+        ({"value": 0.0, "vary": True, "min": 0.0}, 0.1),
+        ({"value": 0.0, "vary": True, "max": 0.0}, -0.1),
+        ({"value": -0.0005, "vary": True}, -0.1),
+        ({"value": 0.0, "vary": False}, 0.0),
+    ],
+)
+def test_build_sh_parameters_zero_d_nudging(d_cfg, expected_d):
+    params = build_sh_parameters({"D": d_cfg}, "isotropic")
+    assert params["D"].value == expected_d
