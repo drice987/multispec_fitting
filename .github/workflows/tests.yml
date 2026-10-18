@@ -33,10 +33,10 @@ jobs:
       - name: Install package and test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[test]"
+          pip install ".[test]"
 
       - name: Run pytest
-        run: pytest --cov=multispec --cov-report=term-missing --cov-report=xml
+        run: pytest --cov=multispec --cov-report=term-missing
 
       - name: Generate coverage badge
         if: matrix.python-version == '3.13' && github.event_name == 'push' && github.ref == 'refs/heads/main'
