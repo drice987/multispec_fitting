@@ -1,4 +1,5 @@
 [![Tests](https://github.com/drice987/multispec_fitting/actions/workflows/tests.yml/badge.svg)](https://github.com/drice987/multispec_fitting/actions/workflows/tests.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/drice987/multispec_fitting/python-coverage-comment-action-data/endpoint.json)](https://github.com/drice987/multispec_fitting/tree/python-coverage-comment-action-data)
 # Multispec Fitting Software
 
 ## Overview
