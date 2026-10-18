@@ -46,5 +46,5 @@ ignore = [
 known-first-party = ["multispec"]
 
 [tool.coverage.run]
-source = ["multispec"]
+source = ["src/multispec"]
 relative_files = true
