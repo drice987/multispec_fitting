@@ -1,3 +1,4 @@
+[![Tests](https://github.com/YOUR_USERNAME/multispec_fitting/actions/workflows/tests.yml/badge.svg)](https://github.com/drice987/multispec_fitting/actions/workflows/tests.yml)
 # Multispec Fitting Software
 
 ## Overview
