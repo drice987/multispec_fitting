@@ -44,3 +44,6 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["multispec"]
+
+[tool.coverage.run]
+relative_files = true
