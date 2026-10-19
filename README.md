@@ -9,12 +9,12 @@
 | src/multispec/bands.py         |       95 |        0 |    100% |           |
 | src/multispec/constants.py     |        2 |        0 |    100% |           |
 | src/multispec/data.py          |       85 |        0 |    100% |           |
-| src/multispec/magnetization.py |      252 |       40 |     84% |253-254, 285-287, 313-340, 347-354, 360, 376, 378, 380 |
+| src/multispec/magnetization.py |      252 |        0 |    100% |           |
 | src/multispec/main.py          |      157 |        8 |     95% |117, 127-128, 132, 209, 279, 281, 304 |
 | src/multispec/outputs.py       |      246 |        5 |     98% |282, 300, 310, 338, 417 |
 | src/multispec/parameters.py    |      108 |       10 |     91% |97, 100-105, 144-146 |
 | src/multispec/spectral\_fit.py |      112 |        3 |     97% |134, 152, 162 |
-| **TOTAL**                      | **1070** |   **71** | **93%** |           |
+| **TOTAL**                      | **1070** |   **31** | **97%** |           |
 
 
 ## Setup coverage badge
