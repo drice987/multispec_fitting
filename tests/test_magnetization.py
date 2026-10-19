@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+from scipy.optimize import OptimizeResult
 
 from multispec.constants import mu_b
 from multispec.magnetization import (
@@ -10,6 +11,7 @@ from multispec.magnetization import (
     generate_simulation_grids,
     get_spin_matrices,
 )
+from multispec.parameters import FitParameter
 
 
 @pytest.mark.parametrize("S", [0.5, 1.0, 1.5, 2.0, 2.5])
@@ -191,3 +193,131 @@ def test_magnetization_fitter_isotropic_recovery_and_method_validation():
 
     with pytest.raises(ValueError, match="Invalid optimization method"):
         fitter.run_fit(method="invalid_solver")
+
+
+@pytest.mark.parametrize(
+    "d_cfg, method, expected_d",
+    [
+        ({"value": 0.0, "vary": True, "min": 0.0}, "L-BFGS-B", 0.1),
+        ({"value": 0.0, "vary": True, "max": 0.0}, "Nelder-Mead", -0.1),
+        ({"value": -1e-5, "vary": True}, "L-BFGS-B", -0.1),
+    ],
+)
+def test_magnetization_fitter_run_fit_zero_d_nudge_and_minimize_dispatch(
+    monkeypatch, d_cfg, method, expected_d
+):
+    sh_params = {
+        "g": FitParameter("g", {"value": 2.0, "vary": False}),
+        "D": FitParameter("D", d_cfg),
+        "E": FitParameter("E", {"value": 0.0, "vary": False}),
+    }
+    fitter = MagnetizationFitter(
+        S=1.0,
+        temps=[2.0],
+        fields=[1.0],
+        exp_norm_dict={"Band1": [1.0]},
+        sh_params=sh_params,
+        symmetry_mode="isotropic",
+    )
+
+    captured = {}
+
+    def fake_minimize(func, x0, *, method, bounds):
+        captured["x0"] = x0
+        captured["method"] = method
+        return OptimizeResult(x=x0, success=True)
+
+    monkeypatch.setattr("multispec.magnetization.minimize", fake_minimize)
+
+    res = fitter.run_fit(method=method)
+    assert res.success is True
+    assert captured["method"] == method
+    assert captured["x0"] == [expected_d, 0.1]
+    assert fitter.sh_params["D"].value == expected_d
+
+
+def test_magnetization_fitter_axial_dipole_recovery():
+    temps = [2.0, 2.0, 5.0, 5.0]
+    fields = [1.0, 7.0, 1.0, 7.0]
+
+    engine = SpinHamiltonian(S=1.0, D=4.0, E=0.0, g=[2.0, 2.0, 2.2])
+    synth_amps = [
+        1.5 * xy + 0.8 * (yz + zx)
+        for t, b in zip(temps, fields)
+        for xy, yz, zx in [engine.get_mcd_components(b, t, n_theta=15, n_phi=15)]
+    ]
+
+    sh_params = build_sh_parameters(
+        {
+            "gx": {"value": 2.0, "vary": False},
+            "gz": {"value": 2.2, "vary": False},
+            "D": {"value": 4.0, "vary": False},
+        },
+        symmetry_mode="axial",
+    )
+    fitter = MagnetizationFitter(
+        S=1.0,
+        temps=temps,
+        fields=fields,
+        exp_norm_dict={"Band1": np.array(synth_amps)},
+        sh_params=sh_params,
+        symmetry_mode="axial",
+    )
+
+    result = fitter.run_fit(method="")
+    assert result.success
+    assert fitter.cost_function(result.x) < 1e-10
+    np.testing.assert_allclose(result.x * fitter.scale_factors["Band1"], [1.5, 0.8], rtol=1e-4)
+
+
+@pytest.mark.parametrize("method", ["differential_evolution", "dual_annealing"])
+def test_magnetization_fitter_global_optimizers_enforce_finite_bounds(monkeypatch, method):
+    sh_params = build_sh_parameters(
+        {
+            "gx": {"value": 2.0, "vary": True},
+            "gy": {"value": 2.0, "vary": False},
+            "gz": {"value": 2.2, "vary": True, "min": 1.8, "max": 2.5},
+            "D": {"value": 5.0, "vary": True},
+            "E": {"value": 0.5, "vary": True},
+        },
+        symmetry_mode="rhombic",
+    )
+    fitter = MagnetizationFitter(
+        S=1.0,
+        temps=[2.0],
+        fields=[1.0],
+        exp_norm_dict={"Band1": [1.0]},
+        sh_params=sh_params,
+        symmetry_mode="rhombic",
+    )
+
+    captured = {}
+
+    def fake_solver(func, *, bounds, x0):
+        captured["func"] = func
+        captured["bounds"] = bounds
+        captured["x0"] = x0
+        return OptimizeResult(x=[2.05, 2.25, 4.8, 0.15, 0.3, 0.4, 0.5], success=True)
+
+    monkeypatch.setattr(
+        f"multispec.magnetization.{method}",
+        lambda func, bounds, x0, **_: fake_solver(func, bounds=bounds, x0=x0),
+    )
+
+    res = fitter.run_fit(method=method)
+
+    assert res.success is True
+    assert captured["func"] == fitter.cost_function
+    assert captured["bounds"] == [
+        (1.0, 3.0),
+        (1.8, 2.5),
+        (-45.0, 55.0),
+        (0.0, 1.0 / 3.0),
+        (-50.0, 50.0),
+        (-50.0, 50.0),
+        (-50.0, 50.0),
+    ]
+    assert np.isclose(fitter.sh_params["gx"].value, 2.05)
+    assert np.isclose(fitter.sh_params["gz"].value, 2.25)
+    assert np.isclose(fitter.sh_params["D"].value, 4.8)
+    assert np.isclose(fitter.sh_params["E"].value, 0.15 * 4.8)
